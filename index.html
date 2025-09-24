@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -52,6 +53,15 @@
 </div>
 
 <script>
+  handleEvent(event){
+    console.log("Event received:", event.kind, event.pubkey, event.tags);
+    switch(event.kind){
+        case 0: if(event.pubkey===this.currentPubkeyHex) this.renderProfile(event); break;
+        case 8: if(event.tags.some(t=>t[0]==="p"&&t[1]===this.currentPubkeyHex)) this.processReceivedBadge(event); break;
+        case 30008: this.processBadgeDefinition(event); break;
+    }
+}
+
 const DOM_IDS = {
   INPUT: "npubInput",
   PROFILE: "profile",
