@@ -165,6 +165,60 @@
         document.getElementById("profileBadges")?.appendChild(mini);
       }
     }
+<style>
+  /* 追加: モーダル */
+  .modal {
+    display: none;
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.6);
+    justify-content: center; align-items: center;
+  }
+  .modal-content {
+    background: white; padding: 20px; border-radius: 10px;
+    max-width: 400px; text-align: center;
+  }
+  .modal-content img { max-width: 200px; margin-bottom: 10px; }
+</style>
+
+<div id="badgeModal" class="modal" onclick="closeModal()">
+  <div class="modal-content" onclick="event.stopPropagation()">
+    <img id="modalImg">
+    <h3 id="modalName"></h3>
+    <p id="modalDesc"></p>
+    <button onclick="closeModal()">閉じる</button>
+  </div>
+</div>
+
+<script>
+  function renderBadge(issuer, id, name, desc, img) {
+    const div=document.createElement("div");
+    div.className="badge";
+    div.innerHTML=`<img src="${img}"><div><strong>${name}</strong></div><div>${desc}</div>`;
+    if (issuer===currentPubkeyHex) {
+      document.getElementById("issued").appendChild(div);
+    } else {
+      document.getElementById("received").appendChild(div);
+      // プロフィールにも小さいアイコンを追加（クリックでモーダル）
+      const mini=document.createElement("img");
+      mini.src=img;
+      mini.style.cursor="pointer";
+      mini.onclick=()=>openModal(img, name, desc);
+      document.getElementById("profileBadges")?.appendChild(mini);
+    }
+  }
+
+  function openModal(img, name, desc) {
+    document.getElementById("modalImg").src = img;
+    document.getElementById("modalName").textContent = name;
+    document.getElementById("modalDesc").textContent = desc;
+    document.getElementById("badgeModal").style.display = "flex";
+  }
+
+  function closeModal() {
+    document.getElementById("badgeModal").style.display = "none";
+  }
+</script>
+
 
     connectRelays();
   </script>
