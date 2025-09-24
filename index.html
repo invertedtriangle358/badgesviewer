@@ -1,225 +1,408 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <title>Nostr Badges Viewer</title>
-  <style>
-    body { font-family: sans-serif; background: #f5f5f5; padding: 20px; }
-    h2 { margin-top: 20px; }
-    .profile {
-      background: white; padding: 15px; border-radius: 8px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.1); margin-bottom: 20px;
-    }
-    .badges { display: flex; flex-wrap: wrap; gap: 10px; }
-    .badge {
-      background: white; border: 1px solid #ccc;
-      padding: 10px; border-radius: 6px;
-      text-align: center; width: 140px;
-    }
-    .badge img { max-width: 80px; display: block; margin: 0 auto 5px; }
-    .mini-badges img { width: 32px; height: 32px; margin-right: 5px; }
-  </style>
+    <meta charset="UTF-8">
+    <title>Nostr Badges Viewer (Refactored)</title>
+    <script src="https://unpkg.com/nostr-tools/lib/nostr.bundle.js"></script>
+    <style>
+        /* --- スタイル定義 --- */
+        body { font-family: sans-serif; background: #f5f5f5; padding: 20px; }
+        h1, h2 { color: #333; }
+        h2 { margin-top: 20px; }
+        #npubInput { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        button { padding: 8px 15px; margin-left: 5px; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 4px; }
+        button:hover { background-color: #0056b3; }
+        
+        .profile {
+            background: white; padding: 15px; border-radius: 8px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1); margin-bottom: 20px;
+        }
+        .profile img { border-radius: 50%; margin-right: 15px; }
+        .profile-header { display: flex; align-items: center; }
+
+        .badges { display: flex; flex-wrap: wrap; gap: 15px; }
+        .badge {
+            background: white; border: 1px solid #ddd;
+            padding: 15px; border-radius: 8px;
+            text-align: center; width: 160px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        .badge:hover { transform: translateY(-3px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        .badge-image { max-width: 100px; max-height: 100px; object-fit: contain; display: block; margin: 0 auto 10px; }
+        .mini-badges { margin-top: 10px; }
+        .mini-badges img { width: 32px; height: 32px; margin-right: 5px; border-radius: 4px; cursor: pointer; }
+
+        /* モーダル */
+        .modal {
+            display: none;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7);
+            justify-content: center; align-items: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background: white; padding: 30px; border-radius: 10px;
+            max-width: 90%; width: 400px; text-align: center;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        .modal-content img { max-width: 100%; height: auto; border-radius: 6px; margin-bottom: 15px; }
+        .modal-content h3 { margin-top: 0; }
+        .modal-content button { margin-top: 15px; background-color: #6c757d; }
+    </style>
 </head>
 <body>
-  <h1>Nostr NIP-56 Badges Viewer</h1>
-  <input id="npubInput" placeholder="対象のnpub" size="66">
-  <button onclick="loadFromNpub()">Load</button>
-  <button onclick="loginWithNostr()">Nostr Login</button>
+    <h1>Nostr NIP-56 Badges Viewer</h1>
+    <div>
+        <input id="npubInput" placeholder="対象のnpubを入力してください" size="60">
+        <button id="loadButton">Load</button>
+        <button id="nostrLoginButton">Nostr Login</button>
+    </div>
 
-  <div id="profile" class="profile"></div>
+    <div id="profile" class="profile"></div>
 
-  <h2>受け取ったバッジ一覧</h2>
-  <div id="received" class="badges"></div>
+    <h2>受け取ったバッジ一覧</h2>
+    <div id="receivedBadges" class="badges"></div>
 
-  <h2>発行したバッジ一覧</h2>
-  <div id="issued" class="badges"></div>
+    <h2>発行したバッジ一覧</h2>
+    <div id="issuedBadges" class="badges"></div>
 
-  <script src="https://unpkg.com/nostr-tools/lib/nostr.bundle.js"></script>
-  <script>
-    // 複数リレー
-    const relayUrls = [
-  "wss://relay.damus.io",
-  "wss://nos.lol",
-  "wss://relay.nostr.band",
-  "wss://relay.snort.social",
-  "wss://relay.nostrcheck.me",
-  "wss://relay-jp.nostr.wirednet.jp",
-  "wss://yabu.me",
-  "wss://r.kojira.io
-    ];
-    let sockets = [];
-    let currentPubkeyHex = "";
+    <div id="badgeModal" class="modal" onclick="NostrApp.closeModal()">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <img id="modalImg" class="badge-image">
+            <h3 id="modalName"></h3>
+            <p id="modalDesc"></p>
+            <button onclick="NostrApp.closeModal()">閉じる</button>
+        </div>
+    </div>
 
-    function connectRelays() {
-      relayUrls.forEach(url => {
-        const socket = new WebSocket(url);
-        sockets.push(socket);
-
-        socket.onopen = () => console.log("Relay connected:", url);
-        socket.onmessage = (event) => {
-          const data = JSON.parse(event.data);
-          if (data[0] === "EVENT") handleEvent(data[2]);
+    <script>
+        // DOM要素のIDを定数として定義
+        const DOM_IDS = {
+            INPUT: "npubInput",
+            PROFILE: "profile",
+            RECEIVED: "receivedBadges",
+            ISSUED: "issuedBadges",
+            MODAL: "badgeModal",
+            MODAL_IMG: "modalImg",
+            MODAL_NAME: "modalName",
+            MODAL_DESC: "modalDesc",
+            PROFILE_BADGES: "profileBadges"
         };
-      });
-    }
+        
+        // リレーURL一覧 (元のコードの末尾の引用符漏れを修正)
+        const RELAY_URLS = [
+            "wss://relay.damus.io",
+            "wss://nos.lol",
+            "wss://relay.nostr.band",
+            "wss://relay.snort.social",
+            "wss://relay.nostrcheck.me",
+            "wss://relay-jp.nostr.wirednet.jp",
+            "wss://yabu.me",
+            "wss://r.kojira.io"
+        ];
 
-    function sendToAllRelays(message) {
-      sockets.forEach(s => {
-        if (s.readyState === WebSocket.OPEN) {
-          s.send(JSON.stringify(message));
-        }
-      });
-    }
+        /**
+         * Nostrアプリケーション全体を管理するオブジェクト
+         */
+        const NostrApp = {
+            sockets: [],
+            currentPubkeyHex: "",
+            badgeDefs: {}, // バッジ定義をキャッシュするためのマップ: `issuer:identifier` -> badge_data
+            
+            /**
+             * リレーへの接続を確立する
+             */
+            connectRelays() {
+                RELAY_URLS.forEach(url => {
+                    try {
+                        const socket = new WebSocket(url);
+                        this.sockets.push(socket);
 
-    async function loginWithNostr() {
-      if (!window.nostr) {
-        alert("Nostr Login対応拡張が見つかりません");
-        return;
-      }
-      try {
-        const pubkey = await window.nostr.getPublicKey();
-        currentPubkeyHex = pubkey;
-        loadAll(pubkey);
-      } catch (e) {
-        console.error(e);
-        alert("Nostr Login失敗");
-      }
-    }
+                        socket.onopen = () => console.log("Relay connected:", url);
+                        socket.onclose = () => console.log("Relay disconnected:", url);
+                        socket.onerror = (e) => console.error("Relay error:", url, e);
+                        
+                        socket.onmessage = (event) => {
+                            try {
+                                const data = JSON.parse(event.data);
+                                if (data[0] === "EVENT") this.handleEvent(data[2]);
+                                if (data[0] === "EOSE") console.log(`EOSE received from ${url} for sub ${data[1]}`);
+                            } catch (e) {
+                                console.error("Error parsing or handling message:", e);
+                            }
+                        };
+                    } catch (e) {
+                        console.error(`Failed to connect to relay ${url}:`, e);
+                    }
+                });
+            },
 
-    function loadFromNpub() {
-      const npub = document.getElementById("npubInput").value.trim();
-      if (!npub) return alert("npubを入力してください");
-      try {
-        const {type, data} = NostrTools.nip19.decode(npub);
-        if (type !== "npub") throw new Error("npub形式ではありません");
-        currentPubkeyHex = data;
-        loadAll(currentPubkeyHex);
-      } catch (e) {
-        console.error(e);
-        alert("npubのデコードに失敗しました");
-      }
-    }
+            /**
+             * すべてのオープンなリレーにメッセージを送信する
+             * @param {Array} message - Nostrメッセージ配列
+             */
+            sendToAllRelays(message) {
+                this.sockets.forEach(s => {
+                    if (s.readyState === WebSocket.OPEN) {
+                        s.send(JSON.stringify(message));
+                    }
+                });
+            },
 
-    function loadAll(pubkeyHex) {
-      document.getElementById("profile").innerHTML = "";
-      document.getElementById("received").innerHTML = "";
-      document.getElementById("issued").innerHTML = "";
+            /**
+             * Nostr拡張機能を使用してログインする
+             */
+            async loginWithNostr() {
+                if (!window.nostr) {
+                    alert("Nostr Login対応拡張が見つかりません (例: Alby, nos2x)");
+                    return;
+                }
+                try {
+                    const pubkey = await window.nostr.getPublicKey();
+                    this.currentPubkeyHex = pubkey;
+                    this.loadAll(pubkey);
+                } catch (e) {
+                    console.error("Nostr Login失敗:", e);
+                    alert("Nostr Login失敗");
+                }
+            },
 
-      // プロフィール
-      sendToAllRelays(["REQ","profile",{kinds:[0],authors:[pubkeyHex]}]);
+            /**
+             * npub入力欄から公開鍵を読み込む
+             */
+            loadFromNpub() {
+                const npub = document.getElementById(DOM_IDS.INPUT).value.trim();
+                if (!npub) return alert("npubを入力してください");
+                
+                try {
+                    // NostrToolsがグローバルにあることを前提
+                    const {type, data} = NostrTools.nip19.decode(npub);
+                    if (type !== "npub") throw new Error("npub形式ではありません");
+                    this.currentPubkeyHex = data;
+                    this.loadAll(this.currentPubkeyHex);
+                } catch (e) {
+                    console.error("npubのデコードに失敗しました:", e);
+                    alert("npubのデコードに失敗しました");
+                }
+            },
 
-      // 受け取ったバッジ
-      sendToAllRelays(["REQ","received",{kinds:[8],"#p":[pubkeyHex]}]);
+            /**
+             * 指定された公開鍵の全データをリレーにリクエストする
+             * @param {string} pubkeyHex - 64桁の16進数の公開鍵
+             */
+            loadAll(pubkeyHex) {
+                // DOMをクリア
+                document.getElementById(DOM_IDS.PROFILE).innerHTML = "";
+                document.getElementById(DOM_IDS.RECEIVED).innerHTML = "";
+                document.getElementById(DOM_IDS.ISSUED).innerHTML = "";
+                
+                // プロフィール (kind 0)
+                this.sendToAllRelays(["REQ", "profile_req", { kinds: [0], authors: [pubkeyHex], limit: 1 }]);
 
-      // 発行したバッジ定義
-      sendToAllRelays(["REQ","issued",{kinds:[30008],authors:[pubkeyHex]}]);
-    }
+                // 受け取ったバッジ (kind 8)
+                this.sendToAllRelays(["REQ", "received_badges_req", { kinds: [8], "#p": [pubkeyHex] }]);
 
-    function handleEvent(event) {
-      if (event.kind === 0) {
-        const c = JSON.parse(event.content);
-        document.getElementById("profile").innerHTML = `
-          <strong>Name:</strong> ${c.name||""}<br>
-          <strong>About:</strong> ${c.about||""}<br>
-          <img src="${c.picture||""}" width="100"><br>
-          <div class="mini-badges" id="profileBadges"></div>
-        `;
-      }
+                // 発行したバッジ定義 (kind 30008)
+                this.sendToAllRelays(["REQ", "issued_defs_req", { kinds: [30008], authors: [pubkeyHex] }]);
+            },
 
-      if (event.kind === 8) {
-        const aTag = event.tags.find(t=>t[0]==="a");
-        if (aTag) {
-          const parts = aTag[1].split(":");
-          if (parts.length===3 && parts[0]==="30008") {
-            const issuer = parts[1];
-            const identifier = parts[2];
-            sendToAllRelays([
-              "REQ", `def-${issuer}-${identifier}`,
-              {kinds:[30008],authors:[issuer],"#d":[identifier]}
-            ]);
-          }
-        }
-      }
+            /**
+             * リレーから受信したイベントを処理する
+             * @param {Object} event - Nostrイベントオブジェクト
+             */
+            handleEvent(event) {
+                switch (event.kind) {
+                    case 0:
+                        // プロフィールイベント
+                        if (event.pubkey === this.currentPubkeyHex) {
+                            this.renderProfile(event);
+                        }
+                        break;
+                    case 8:
+                        // バッジ受領イベント (NIP-58)
+                        if (event.tags.some(t => t[0] === "p" && t[1] === this.currentPubkeyHex)) {
+                            this.processReceivedBadge(event);
+                        }
+                        break;
+                    case 30008:
+                        // バッジ定義イベント (NIP-58)
+                        this.processBadgeDefinition(event);
+                        break;
+                    default:
+                        // 他のイベントは無視
+                        break;
+                }
+            },
 
-      if (event.kind === 30008) {
-        const id = event.tags.find(t=>t[0]==="d")?.[1];
-        const name = event.tags.find(t=>t[0]==="name")?.[1] || "Unnamed";
-        const desc = event.tags.find(t=>t[0]==="description")?.[1] || "";
-        const img  = event.tags.find(t=>t[0]==="image")?.[1] || "";
+            /**
+             * プロフィール (kind 0) イベントをDOMに描画する
+             * @param {Object} event - kind 0 イベント
+             */
+            renderProfile(event) {
+                try {
+                    const profile = JSON.parse(event.content);
+                    const profileDiv = document.getElementById(DOM_IDS.PROFILE);
+                    profileDiv.innerHTML = `
+                        <div class="profile-header">
+                            <img src="${profile.picture || 'https://via.placeholder.com/100'}" width="100" alt="Profile Picture">
+                            <div>
+                                <h2>${profile.display_name || profile.name || event.pubkey.slice(0, 8)}</h2>
+                                <p><strong>npub:</strong> ${NostrTools.nip19.npubEncode(event.pubkey)}</p>
+                                <p>${profile.about || '自己紹介はありません。'}</p>
+                            </div>
+                        </div>
+                        <div class="mini-badges" id="${DOM_IDS.PROFILE_BADGES}"></div>
+                    `;
+                } catch (e) {
+                    console.error("Error rendering profile:", e);
+                }
+            },
 
-        renderBadge(event.pubkey, id, name, desc, img);
-      }
-    }
+            /**
+             * 受領したバッジ (kind 8) イベントからバッジ定義をリクエストする
+             * @param {Object} event - kind 8 イベント
+             */
+            processReceivedBadge(event) {
+                const aTag = event.tags.find(t => t[0] === "a");
+                if (!aTag) return;
 
-    function renderBadge(issuer, id, name, desc, img) {
-      const div=document.createElement("div");
-      div.className="badge";
-      div.innerHTML=`<img src="${img}"><div><strong>${name}</strong></div><div>${desc}</div>`;
-      if (issuer===currentPubkeyHex) {
-        document.getElementById("issued").appendChild(div);
-      } else {
-        document.getElementById("received").appendChild(div);
-        // プロフィールにも小さいアイコンを追加
-        const mini=document.createElement("img");
-        mini.src=img;
-        document.getElementById("profileBadges")?.appendChild(mini);
-      }
-    }
-<style>
-  /* 追加: モーダル */
-  .modal {
-    display: none;
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(0,0,0,0.6);
-    justify-content: center; align-items: center;
-  }
-  .modal-content {
-    background: white; padding: 20px; border-radius: 10px;
-    max-width: 400px; text-align: center;
-  }
-  .modal-content img { max-width: 200px; margin-bottom: 10px; }
-</style>
+                const parts = aTag[1].split(":");
+                // aTagの形式: 30008:<pubkey>:<identifier>
+                if (parts.length === 3 && parts[0] === "30008") {
+                    const [kind, issuer, identifier] = parts;
+                    const badgeKey = `${issuer}:${identifier}`;
 
-<div id="badgeModal" class="modal" onclick="closeModal()">
-  <div class="modal-content" onclick="event.stopPropagation()">
-    <img id="modalImg">
-    <h3 id="modalName"></h3>
-    <p id="modalDesc"></p>
-    <button onclick="closeModal()">閉じる</button>
-  </div>
-</div>
+                    // キャッシュに既にあれば描画、なければリクエスト
+                    if (this.badgeDefs[badgeKey]) {
+                        this.renderBadge(issuer, identifier, this.badgeDefs[badgeKey], false);
+                    } else {
+                        // バッジ定義をリクエスト (kind 30008)
+                        const subId = `def_req_${issuer.slice(0, 4)}_${identifier.slice(0, 4)}`;
+                        this.sendToAllRelays([
+                            "REQ", subId,
+                            { kinds: [30008], authors: [issuer], "#d": [identifier], limit: 1 }
+                        ]);
+                    }
+                }
+            },
 
-<script>
-  function renderBadge(issuer, id, name, desc, img) {
-    const div=document.createElement("div");
-    div.className="badge";
-    div.innerHTML=`<img src="${img}"><div><strong>${name}</strong></div><div>${desc}</div>`;
-    if (issuer===currentPubkeyHex) {
-      document.getElementById("issued").appendChild(div);
-    } else {
-      document.getElementById("received").appendChild(div);
-      // プロフィールにも小さいアイコンを追加（クリックでモーダル）
-      const mini=document.createElement("img");
-      mini.src=img;
-      mini.style.cursor="pointer";
-      mini.onclick=()=>openModal(img, name, desc);
-      document.getElementById("profileBadges")?.appendChild(mini);
-    }
-  }
+            /**
+             * バッジ定義 (kind 30008) イベントを処理し、キャッシュして描画する
+             * @param {Object} event - kind 30008 イベント
+             */
+            processBadgeDefinition(event) {
+                const id = event.tags.find(t => t[0] === "d")?.[1];
+                if (!id) return;
+                
+                const badgeData = {
+                    name: event.tags.find(t => t[0] === "name")?.[1] || "Unnamed Badge",
+                    desc: event.tags.find(t => t[0] === "description")?.[1] || "",
+                    img: event.tags.find(t => t[0] === "image")?.[1] || "",
+                    issuer: event.pubkey
+                };
+                
+                const badgeKey = `${event.pubkey}:${id}`;
+                this.badgeDefs[badgeKey] = badgeData; // キャッシュに保存
 
-  function openModal(img, name, desc) {
-    document.getElementById("modalImg").src = img;
-    document.getElementById("modalName").textContent = name;
-    document.getElementById("modalDesc").textContent = desc;
-    document.getElementById("badgeModal").style.display = "flex";
-  }
+                // 自分自身が発行者なら発行バッジ、そうでなければ受領バッジとして描画
+                const isIssued = event.pubkey === this.currentPubkeyHex;
+                this.renderBadge(event.pubkey, id, badgeData, isIssued);
+            },
 
-  function closeModal() {
-    document.getElementById("badgeModal").style.display = "none";
-  }
-</script>
+            /**
+             * バッジをDOMに描画する
+             * @param {string} issuer - バッジ発行者のpubkey
+             * @param {string} id - バッジのdタグ識別子
+             * @param {Object} data - name, desc, imgを含むバッジデータ
+             * @param {boolean} isIssued - 発行したバッジかどうかのフラグ
+             */
+            renderBadge(issuer, id, data, isIssued) {
+                const containerId = isIssued ? DOM_IDS.ISSUED : DOM_IDS.RECEIVED;
+                const container = document.getElementById(containerId);
+                if (!container) return;
 
-    connectRelays();
-  </script>
+                // 重複を防ぐために、既に同じバッジが描画されていないかチェック (簡易的なもの)
+                const existingBadge = container.querySelector(`[data-badge-key="${issuer}:${id}"]`);
+                if (existingBadge) return;
+
+                const div = document.createElement("div");
+                div.className = "badge";
+                div.setAttribute("data-badge-key", `${issuer}:${id}`); // 重複チェック用
+                div.setAttribute("data-name", data.name);
+                div.setAttribute("data-desc", data.desc);
+                div.setAttribute("data-img", data.img);
+
+                div.innerHTML = `
+                    <img src="${data.img || 'https://via.placeholder.com/100'}" class="badge-image" alt="${data.name}">
+                    <div><strong>${data.name}</strong></div>
+                    <small>${data.desc.substring(0, 30)}${data.desc.length > 30 ? '...' : ''}</small>
+                `;
+                
+                div.onclick = () => this.openModal(data.img, data.name, data.desc);
+                container.appendChild(div);
+
+                // 受け取ったバッジの場合のみ、プロフィール欄にアイコンを追加
+                if (!isIssued) {
+                    const profileBadgesDiv = document.getElementById(DOM_IDS.PROFILE_BADGES);
+                    if (profileBadgesDiv) {
+                        const mini = document.createElement("img");
+                        mini.src = data.img || 'https://via.placeholder.com/32';
+                        mini.title = data.name;
+                        mini.onclick = (e) => {
+                            e.stopPropagation(); // 親要素のクリックイベントを停止
+                            this.openModal(data.img, data.name, data.desc);
+                        };
+                        profileBadgesDiv.appendChild(mini);
+                    }
+                }
+            },
+            
+            // --- モーダル関数 ---
+
+            /**
+             * モーダルを開く
+             */
+            openModal(img, name, desc) {
+                document.getElementById(DOM_IDS.MODAL_IMG).src = img || 'https://via.placeholder.com/200';
+                document.getElementById(DOM_IDS.MODAL_NAME).textContent = name;
+                document.getElementById(DOM_IDS.MODAL_DESC).textContent = desc;
+                document.getElementById(DOM_IDS.MODAL).style.display = "flex";
+            },
+
+            /**
+             * モーダルを閉じる
+             */
+            closeModal() {
+                document.getElementById(DOM_IDS.MODAL).style.display = "none";
+            },
+            
+            /**
+             * 初期化
+             */
+            init() {
+                this.connectRelays();
+                
+                // イベントリスナーの設定
+                document.getElementById("loadButton").addEventListener("click", () => this.loadFromNpub());
+                document.getElementById("nostrLoginButton").addEventListener("click", () => this.loginWithNostr());
+                document.getElementById(DOM_IDS.INPUT).addEventListener("keypress", (e) => {
+                    if (e.key === 'Enter') this.loadFromNpub();
+                });
+
+                // URLパラメータからnpubを読み込む機能を追加することも可能
+                // const params = new URLSearchParams(window.location.search);
+                // const initialNpub = params.get('npub');
+                // if (initialNpub) {
+                //     document.getElementById(DOM_IDS.INPUT).value = initialNpub;
+                //     this.loadFromNpub();
+                // }
+            }
+        };
+
+        // アプリケーションを起動
+        NostrApp.init();
+    </script>
 </body>
 </html>
