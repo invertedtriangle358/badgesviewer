@@ -2,36 +2,35 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>Nostr Badges Viewer (Refactored)</title>
-<script src="https://unpkg.com/nostr-tools/lib/nostr.bundle.js"></script>
+<title>Nostr Badges Viewer (NIP-58)</title> <script src="https://unpkg.com/nostr-tools/lib/nostr.bundle.js"></script>
 <style>
-  body { font-family: sans-serif; background: #f5f5f5; padding: 20px; }
-  h1,h2 { color:#333; margin-top:20px; }
-  #npubInput { padding:8px; border:1px solid #ccc; border-radius:4px; }
-  button { padding:8px 15px; margin-left:5px; cursor:pointer; background:#007bff; color:white; border:none; border-radius:4px; }
-  button:hover { background:#0056b3; }
-  .profile { background:white; padding:15px; border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.1); margin-bottom:20px; }
-  .profile-header { display:flex; align-items:center; }
-  .profile img { border-radius:50%; margin-right:15px; }
-  .badges { display:flex; flex-wrap:wrap; gap:15px; }
-  .badge { background:white; border:1px solid #ddd; padding:15px; border-radius:8px; text-align:center; width:160px; box-shadow:0 1px 3px rgba(0,0,0,0.05); cursor:pointer; transition:transform 0.1s; }
-  .badge:hover { transform:translateY(-3px); box-shadow:0 4px 8px rgba(0,0,0,0.1); }
-  .badge-image { max-width:100px; max-height:100px; object-fit:contain; display:block; margin:0 auto 10px; }
-  .mini-badges { margin-top:10px; }
-  .mini-badges img { width:32px; height:32px; margin-right:5px; border-radius:4px; cursor:pointer; }
-  .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); justify-content:center; align-items:center; z-index:1000; }
-  .modal-content { background:white; padding:30px; border-radius:10px; max-width:90%; width:400px; text-align:center; box-shadow:0 5px 15px rgba(0,0,0,0.3); }
-  .modal-content img { max-width:100%; height:auto; border-radius:6px; margin-bottom:15px; }
-  .modal-content h3 { margin-top:0; }
-  .modal-content button { margin-top:15px; background-color:#6c757d; color:white; border:none; padding:8px 12px; border-radius:4px; cursor:pointer; }
+  body { font-family: sans-serif; background: #f5f5f5; padding: 20px; }
+  h1,h2 { color:#333; margin-top:20px; }
+  #npubInput { padding:8px; border:1px solid #ccc; border-radius:4px; width: 400px; }
+  button { padding:8px 15px; margin-left:5px; cursor:pointer; background:#007bff; color:white; border:none; border-radius:4px; }
+  button:hover { background:#0056b3; }
+  .profile { background:white; padding:15px; border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.1); margin-bottom:20px; }
+  .profile-header { display:flex; align-items:center; }
+  .profile img { border-radius:50%; margin-right:15px; }
+  .badges { display:flex; flex-wrap:wrap; gap:15px; }
+  .badge { background:white; border:1px solid #ddd; padding:15px; border-radius:8px; text-align:center; width:160px; box-shadow:0 1px 3px rgba(0,0,0,0.05); cursor:pointer; transition:transform 0.1s; }
+  .badge:hover { transform:translateY(-3px); box-shadow:0 4px 8px rgba(0,0,0,0.1); }
+  .badge-image { max-width:100px; max-height:100px; object-fit:contain; display:block; margin:0 auto 10px; }
+  .mini-badges { margin-top:10px; }
+  .mini-badges img { width:32px; height:32px; margin-right:5px; border-radius:4px; cursor:pointer; }
+  .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); justify-content:center; align-items:center; z-index:1000; }
+  .modal-content { background:white; padding:30px; border-radius:10px; max-width:90%; width:400px; text-align:center; box-shadow:0 5px 15px rgba(0,0,0,0.3); }
+  .modal-content img { max-width:100%; height:auto; border-radius:6px; margin-bottom:15px; }
+  .modal-content h3 { margin-top:0; }
+  .modal-content button { margin-top:15px; background-color:#6c757d; color:white; border:none; padding:8px 12px; border-radius:4px; cursor:pointer; }
 </style>
 </head>
 <body>
-<h1>Nostr NIP-56 Badges Viewer</h1>
+<h1>Nostr NIP-58 Badges Viewer</h1>
 <div>
-  <input id="npubInput" placeholder="対象のnpubを入力してください" size="60">
-  <button id="loadButton">Load</button>
-  <button id="nostrLoginButton">Nostr Login</button>
+  <input id="npubInput" placeholder="対象のnpubを入力してください" size="60">
+  <button id="loadButton">Load</button>
+  <button id="nostrLoginButton">Nostr Login</button>
 </div>
 
 <div id="profile" class="profile"></div>
@@ -43,187 +42,212 @@
 <div id="issuedBadges" class="badges"></div>
 
 <div id="badgeModal" class="modal" onclick="NostrApp.closeModal()">
-  <div class="modal-content" onclick="event.stopPropagation()">
-    <img id="modalImg" class="badge-image">
-    <h3 id="modalName"></h3>
-    <p id="modalDesc"></p>
-    <button onclick="NostrApp.closeModal()">閉じる</button>
-  </div>
+  <div class="modal-content" onclick="event.stopPropagation()">
+    <img id="modalImg" class="badge-image">
+    <h3 id="modalName"></h3>
+    <p id="modalDesc"></p>
+    <button onclick="NostrApp.closeModal()">閉じる</button>
+  </div>
 </div>
 
 <script>
 const DOM_IDS = {
-  INPUT: "npubInput",
-  PROFILE: "profile",
-  RECEIVED: "receivedBadges",
-  ISSUED: "issuedBadges",
-  MODAL: "badgeModal",
-  MODAL_IMG: "modalImg",
-  MODAL_NAME: "modalName",
-  MODAL_DESC: "modalDesc",
-  PROFILE_BADGES: "profileBadges"
+  INPUT: "npubInput",
+  PROFILE: "profile",
+  RECEIVED: "receivedBadges",
+  ISSUED: "issuedBadges",
+  MODAL: "badgeModal",
+  MODAL_IMG: "modalImg",
+  MODAL_NAME: "modalName",
+  MODAL_DESC: "modalDesc",
+  PROFILE_BADGES: "profileBadges"
 };
 
 const RELAY_URLS = [
-  "wss://relay.damus.io",
-  "wss://nos.lol",
-  "wss://relay.nostr.band",
-  "wss://relay.snort.social",
-  "wss://relay.nostrcheck.me",
-  "wss://relay-jp.nostr.wirednet.jp",
-  "wss://yabu.me",
-  "wss://r.kojira.io"
+  "wss://relay.damus.io",
+  "wss://nos.lol",
+  "wss://relay.nostr.band",
+  "wss://relay.snort.social",
+  "wss://relay.nostrcheck.me",
+  "wss://relay-jp.nostr.wirednet.jp",
+  "wss://yabu.me",
+  "wss://r.kojira.io"
 ];
 
 const NostrApp = {
-  sockets: [],
-  currentPubkeyHex: "",
-  badgeDefs: {},
-  receivedBadgeKeys: {},
-  profileBadgeKeys: [], // Kind 30009で指定されたバッジのキーを保持
+  sockets: [],
+  currentPubkeyHex: "",
+  badgeDefs: {},
+  receivedBadgeKeys: {},
+  profileBadgeKeys: [],
 
-  init() {
-    this.connectRelays();
-    document.getElementById("loadButton").addEventListener("click", () => this.loadFromNpub());
-    document.getElementById("nostrLoginButton").addEventListener("click", () => this.loginWithNostr());
-    document.getElementById(DOM_IDS.INPUT).addEventListener("keypress", e => { if (e.key==='Enter') this.loadFromNpub(); });
-  },
+  init() {
+    this.connectRelays();
+    document.getElementById("loadButton").addEventListener("click", () => this.loadFromNpub());
+    document.getElementById("nostrLoginButton").addEventListener("click", () => this.loginWithNostr());
+    document.getElementById(DOM_IDS.INPUT).addEventListener("keypress", e => { if (e.key==='Enter') this.loadFromNpub(); });
+  },
 
-  connectRelays() {
-    RELAY_URLS.forEach(url => {
-      try {
-        const socket = new WebSocket(url);
-        this.sockets.push(socket);
-        socket.onopen = () => console.log("Relay connected:", url);
-        socket.onclose = () => console.log("Relay disconnected:", url);
-        socket.onerror = e => console.error("Relay error:", url, e);
-        socket.onmessage = e => {
-          try {
-            const data = JSON.parse(e.data);
-            if (data[0]==="EVENT") this.handleEvent(data[2]);
-            if (data[0]==="EOSE") console.log(`EOSE from ${url} for sub ${data[1]}`);
-          } catch(err){ console.error("Relay message parse error:", err); }
-        };
-      } catch(err){ console.error(`Failed to connect to relay ${url}:`, err); }
-    });
-  },
+  connectRelays() {
+    RELAY_URLS.forEach(url => {
+      try {
+        const socket = new WebSocket(url);
+        this.sockets.push(socket);
+        socket.onopen = () => console.log("Relay connected:", url);
+        socket.onclose = () => console.log("Relay disconnected:", url);
+        socket.onerror = e => console.error("Relay error:", url, e);
+        socket.onmessage = e => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data[0]==="EVENT") this.handleEvent(data[2]);
+            if (data[0]==="EOSE") console.log(`EOSE from ${url} for sub ${data[1]}`);
+          } catch(err){ console.error("Relay message parse error:", err); }
+        };
+      } catch(err){ console.error(`Failed to connect to relay ${url}:`, err); }
+    });
+  },
 
-  sendToAllRelays(msg) { this.sockets.forEach(s=>{if(s.readyState===WebSocket.OPEN)s.send(JSON.stringify(msg));}); },
+  sendToAllRelays(msg) { this.sockets.forEach(s=>{if(s.readyState===WebSocket.OPEN)s.send(JSON.stringify(msg));}); },
 
-  loadAll(pubkeyHex){
-    ["PROFILE","RECEIVED","ISSUED"].forEach(id => document.getElementById(DOM_IDS[id]).innerHTML="");
-    this.badgeDefs={}; this.receivedBadgeKeys={}; this.profileBadgeKeys=[]; // リセット
-    
-    // 1. プロフィール (Kind 0)
-    this.sendToAllRelays(["REQ","profile_req",{kinds:[0],authors:[pubkeyHex],limit:1}]);
-    
-    // 2. 受け取ったバッジ (Kind 8)
-    this.sendToAllRelays(["REQ","received_badges_req",{kinds:[8],"#p":[pubkeyHex]}]);
-    
-    // 3. 発行したバッジ定義 (Kind 30008)
-    this.sendToAllRelays(["REQ","issued_defs_req",{kinds:[30008],authors:[pubkeyHex]}]);
+  loadAll(pubkeyHex){
+    ["PROFILE","RECEIVED","ISSUED"].forEach(id => document.getElementById(DOM_IDS[id]).innerHTML="");
+    this.badgeDefs={}; this.receivedBadgeKeys={}; this.profileBadgeKeys=[];
+    
+    // 1. プロフィール (Kind 0)
+    this.sendToAllRelays(["REQ","profile_req",{kinds:[0],authors:[pubkeyHex],limit:1}]);
+    
+    // 2. 受け取ったバッジ (Kind 8)
+    this.sendToAllRelays(["REQ","received_badges_req",{kinds:[8],"#p":[pubkeyHex]}]);
+    
+    // 3. 発行したバッジ定義 (Kind 30008)
+    this.sendToAllRelays(["REQ","issued_defs_req",{kinds:[30008],authors:[pubkeyHex]}]);
 
-    // 4. プロフィール表示バッジ (Kind 30009) を追加
+    // 4. プロフィール表示バッジ (Kind 30009)
     this.sendToAllRelays(["REQ","profile_badges_req",{kinds:[30009],authors:[pubkeyHex],limit:1}]);
-  },
+  },
 
-  loginWithNostr(){
-    if(!window.nostr){alert("Nostr Login対応拡張が見つかりません"); return;}
-    try {
-      // Promise対応
-      const pubkey = window.nostr.getPublicKey();
-      if(pubkey.then){ pubkey.then(p=>{this.currentPubkeyHex=p; this.loadAll(p);}); }
-      else{ this.currentPubkeyHex=pubkey; this.loadAll(pubkey); }
-    } catch(e){ console.error("Login failed",e); alert("Nostr Login失敗"); }
-  },
+  loginWithNostr(){
+    if(!window.nostr){alert("Nostr Login対応拡張が見つかりません"); return;}
+    try {
+      const pubkey = window.nostr.getPublicKey();
+      if(pubkey.then){ pubkey.then(p=>{this.currentPubkeyHex=p; this.loadAll(p);}); }
+      else{ this.currentPubkeyHex=pubkey; this.loadAll(pubkey); }
+    } catch(e){ console.error("Login failed",e); alert("Nostr Login失敗"); }
+  },
 
-  loadFromNpub(){
-    const npub=document.getElementById(DOM_IDS.INPUT).value.trim();
-    if(!npub) return alert("npubを入力してください");
-    try{
-      const {type,data}=NostrTools.nip19.decode(npub);
-      if(type!=="npub") throw new Error("npub形式ではありません");
-      this.currentPubkeyHex=data;
-      this.loadAll(data);
-    }catch(e){ console.error("npub decode failed",e); alert("npub decode failed"); }
-  },
+  loadFromNpub(){
+    const npub=document.getElementById(DOM_IDS.INPUT).value.trim();
+    if(!npub) return alert("npubを入力してください");
+    try{
+      const {type,data}=NostrTools.nip19.decode(npub);
+      if(type!=="npub") throw new Error("npub形式ではありません");
+      this.currentPubkeyHex=data;
+      this.loadAll(data);
+    }catch(e){ console.error("npub decode failed",e); alert("npub decode failed"); }
+  },
 
-  handleEvent(event){
-    switch(event.kind){
-      case 0: if(event.pubkey===this.currentPubkeyHex) this.renderProfile(event); break;
-      case 8: if(event.tags.some(t=>t[0]==="p"&&t[1]===this.currentPubkeyHex)) this.processReceivedBadge(event); break;
-      case 30008: this.processBadgeDefinition(event); break;
-      case 30009: if(event.pubkey===this.currentPubkeyHex) this.processProfileBadges(event); break; // Kind 30009を追加
-      default: break;
-    }
-  },
+  handleEvent(event){
+    switch(event.kind){
+      case 0: if(event.pubkey===this.currentPubkeyHex) this.renderProfile(event); break;
+      case 8: if(event.tags.some(t=>t[0]==="p"&&t[1]===this.currentPubkeyHex)) this.processReceivedBadge(event); break;
+      case 30008: this.processBadgeDefinition(event); break;
+      case 30009: if(event.pubkey===this.currentPubkeyHex) this.processProfileBadges(event); break;
+      default: break;
+    }
+  },
 
-  renderProfile(event){
-    try{
-      const profile=JSON.parse(event.content);
-      const div=document.getElementById(DOM_IDS.PROFILE);
-      div.innerHTML=`
-      <div class="profile-header">
-        <img src="${profile.picture||'https://via.placeholder.com/100'}" width="100" alt="Profile Picture">
-        <div>
-          <h2>${profile.display_name||profile.name||event.pubkey.slice(0,8)}</h2>
-          <p><strong>npub:</strong> ${NostrTools.nip19.npubEncode(event.pubkey)}</p>
-          <p>${profile.about||'自己紹介はありません。'}</p>
-        </div>
-      </div>
-      <div class="mini-badges" id="${DOM_IDS.PROFILE_BADGES}"></div>`;
-      // プロフィール情報取得後、保持しているバッジキーでプロフィールバッジを描画
-      this.renderProfileBadges(); 
-    }catch(e){ console.error("renderProfile error:",e); }
-  },
+  // ★★★★★ 修正点 1: Kind 0 のタグからもバッジ情報を取得するように修正 ★★★★★
+  renderProfile(event){
+    try{
+      const profile=JSON.parse(event.content);
+      const div=document.getElementById(DOM_IDS.PROFILE);
+      div.innerHTML=`
+      <div class="profile-header">
+        <img src="${profile.picture||'https://via.placeholder.com/100'}" width="100" alt="Profile Picture">
+        <div>
+          <h2>${profile.display_name||profile.name||event.pubkey.slice(0,8)}</h2>
+          <p><strong>npub:</strong> ${NostrTools.nip19.npubEncode(event.pubkey)}</p>
+          <p>${profile.about||'自己紹介はありません。'}</p>
+        </div>
+      </div>
+      <div class="mini-badges" id="${DOM_IDS.PROFILE_BADGES}"></div>`;
 
-  processReceivedBadge(event){
-    const aTag=event.tags.find(t=>t[0]==="a"); if(!aTag) return;
-    const parts=aTag[1].split(":"); if(parts.length!==3||parts[0]!=="30008") return;
-    const [kind,issuer,identifier]=parts;
-    const badgeKey=`${issuer}:${identifier}`;
-    this.receivedBadgeKeys[badgeKey]=true;
+      // Kind 0 の 'a' タグからプロフィールバッジのキーを取得
+      const badgeKeysFromProfile = event.tags
+        .filter(t => t[0] === 'a' && t[1]?.startsWith('30008:'))
+        .map(t => t[1].substring('30008:'.length));
+      
+      this.updateProfileBadges(badgeKeysFromProfile);
 
-    // Kind 30008の定義がまだ来ていなければリクエストを投げる
-    if(this.badgeDefs[badgeKey]) this.renderBadge(issuer,identifier,this.badgeDefs[badgeKey],false);
-    else this.sendToAllRelays(["REQ",`def_req_${issuer.slice(0,8)}_${identifier.slice(0,8)}`,{kinds:[30008],authors:[issuer],"#d":[identifier],limit:1}]);
-  },
+      // プロフィール描画後に、現在のバッジキーで再描画
+      this.renderProfileBadges();
+    }catch(e){ console.error("renderProfile error:",e); }
+  },
 
-  processBadgeDefinition(event){
-    const id=event.tags.find(t=>t[0]==="d")?.[1]; if(!id) return;
-    const badgeKey=`${event.pubkey}:${id}`;
-    const badgeData={
-      name:event.tags.find(t=>t[0]==="name")?.[1]||"Unnamed Badge",
-      desc:event.tags.find(t=>t[0]==="description")?.[1]||"",
-      img:event.tags.find(t=>t[0]==="image")?.[1]||"",
-      issuer:event.pubkey
-    };
-    this.badgeDefs[badgeKey]=badgeData;
-    
-    const isIssued=event.pubkey===this.currentPubkeyHex;
-    const isReceived=this.receivedBadgeKeys[badgeKey];
-    
-    // Kind 30008の定義が揃ったら、付与バッジと発行バッジをそれぞれ描画
-    if(isIssued) this.renderBadge(event.pubkey,id,badgeData,true);
-    if(isReceived) this.renderBadge(event.pubkey,id,badgeData,false);
+  processReceivedBadge(event){
+    const aTag=event.tags.find(t=>t[0]==="a"); if(!aTag) return;
+    const parts=aTag[1].split(":"); if(parts.length!==3||parts[0]!=="30008") return;
+    const [kind,issuer,identifier]=parts;
+    const badgeKey=`${issuer}:${identifier}`;
+    this.receivedBadgeKeys[badgeKey]=true;
+
+    if(this.badgeDefs[badgeKey]) this.renderBadge(issuer,identifier,this.badgeDefs[badgeKey],false);
+    else this.sendToAllRelays(["REQ",`def_req_${issuer.slice(0,8)}_${identifier.slice(0,8)}`,{kinds:[30008],authors:[issuer],"#d":[identifier],limit:1}]);
+  },
+
+  processBadgeDefinition(event){
+    const id=event.tags.find(t=>t[0]==="d")?.[1]; if(!id) return;
+    const badgeKey=`${event.pubkey}:${id}`;
+    const badgeData={
+      name:event.tags.find(t=>t[0]==="name")?.[1]||"Unnamed Badge",
+      desc:event.tags.find(t=>t[0]==="description")?.[1]||"",
+      img:event.tags.find(t=>t[0]==="image")?.[1]||"",
+      issuer:event.pubkey
+    };
+    this.badgeDefs[badgeKey]=badgeData;
+    
+    const isIssued=event.pubkey===this.currentPubkeyHex;
+    const isReceived=this.receivedBadgeKeys[badgeKey];
+    
+    if(isIssued) this.renderBadge(event.pubkey,id,badgeData,true);
+    if(isReceived) this.renderBadge(event.pubkey,id,badgeData,false);
     
     // プロフィール表示バッジの描画（定義が後から来た場合を考慮）
     if(this.profileBadgeKeys.includes(badgeKey)) this.renderProfileBadges();
-  },
+  },
 
-  // Kind 30009の処理を追加
+  // ★★★★★ 修正点 2: Kind 30009 の処理をデータの上書きからマージに変更 ★★★★★
   processProfileBadges(event){
-    const aTags = event.tags.filter(t => t[0] === 'a' && t[1].startsWith('30008:'));
-    this.profileBadgeKeys = aTags.map(t => t[1].substring('30008:'.length)); // pubkey:d-tag の形式に変換
+    const aTags = event.tags.filter(t => t[0] === 'a' && t[1]?.startsWith('30008:'));
+    const newBadgeKeys = aTags.map(t => t[1].substring('30008:'.length));
     
-    // プロフィール表示用のミニバッジを描画
+    this.updateProfileBadges(newBadgeKeys);
     this.renderProfileBadges();
+  },
+  
+  // ★★★★★ 修正点 3: プロフィールバッジキーを更新し、定義をリクエストする共通関数を追加 ★★★★★
+  updateProfileBadges(newKeys) {
+    if (!newKeys || newKeys.length === 0) return;
 
-    // プロフィールバッジとして指定されたバッジ定義がまだない場合はリクエスト
-    this.profileBadgeKeys.forEach(key => {
+    const currentKeys = new Set(this.profileBadgeKeys);
+    const addedKeys = [];
+
+    newKeys.forEach(key => {
+        if (!currentKeys.has(key)) {
+            currentKeys.add(key);
+            addedKeys.push(key);
+        }
+    });
+
+    this.profileBadgeKeys = Array.from(currentKeys);
+
+    // 新しく追加されたバッジの定義のみをリクエスト
+    addedKeys.forEach(key => {
         if (!this.badgeDefs[key]) {
             const [issuer, identifier] = key.split(':');
-            this.sendToAllRelays(["REQ",`profile_def_req_${issuer.slice(0,8)}_${identifier.slice(0,8)}`,{kinds:[30008],authors:[issuer],"#d":[identifier],limit:1}]);
+            if (issuer && identifier) {
+               this.sendToAllRelays(["REQ",`profile_def_req_${issuer.slice(0,8)}_${identifier.slice(0,8)}`,{kinds:[30008],authors:[issuer],"#d":[identifier],limit:1}]);
+            }
         }
     });
   },
@@ -231,43 +255,41 @@ const NostrApp = {
   renderProfileBadges() {
     const profileDiv = document.getElementById(DOM_IDS.PROFILE_BADGES);
     if (!profileDiv) return;
-    profileDiv.innerHTML = ''; // 一旦クリア
+    profileDiv.innerHTML = '';
 
     this.profileBadgeKeys.forEach(badgeKey => {
-        const data = this.badgeDefs[badgeKey];
-        if (data) {
-            const mini = document.createElement("img");
-            mini.src = data.img || 'https://via.placeholder.com/32';
-            mini.title = data.name;
-            mini.onclick = e => { e.stopPropagation(); this.openModal(data.img, data.name, data.desc); };
-            profileDiv.appendChild(mini);
-        }
+      const data = this.badgeDefs[badgeKey];
+      if (data) {
+        const mini = document.createElement("img");
+        mini.src = data.img || 'https://via.placeholder.com/32';
+        mini.title = `${data.name}\n${data.desc}`;
+        mini.onclick = e => { e.stopPropagation(); this.openModal(data.img, data.name, data.desc); };
+        profileDiv.appendChild(mini);
+      }
     });
   },
 
-  renderBadge(issuer,id,data,isIssued){
-    const container=document.getElementById(isIssued?DOM_IDS.ISSUED:DOM_IDS.RECEIVED); if(!container) return;
-    const badgeKey=`${issuer}:${id}`;
-    if(container.querySelector(`[data-badge-key="${badgeKey}"]`)) return;
-    const div=document.createElement("div");
-    div.className="badge"; div.dataset.badgeKey=badgeKey;
-    div.innerHTML=`
-      <img src="${data.img||'https://via.placeholder.com/100'}" class="badge-image" alt="${data.name}">
-      <div><strong>${data.name}</strong></div>
-      <small>${data.desc.substring(0,30)}${data.desc.length>30?'...':''}</small>`;
-    div.onclick=()=>this.openModal(data.img,data.name,data.desc);
-    container.appendChild(div);
-    
-    // プロフィール表示バッジの描画は専用の renderProfileBadges メソッドに分離
-  },
+  renderBadge(issuer,id,data,isIssued){
+    const container=document.getElementById(isIssued?DOM_IDS.ISSUED:DOM_IDS.RECEIVED); if(!container) return;
+    const badgeKey=`${issuer}:${id}`;
+    if(container.querySelector(`[data-badge-key="${badgeKey}"]`)) return;
+    const div=document.createElement("div");
+    div.className="badge"; div.dataset.badgeKey=badgeKey;
+    div.innerHTML=`
+      <img src="${data.img||'https://via.placeholder.com/100'}" class="badge-image" alt="${data.name}">
+      <div><strong>${data.name}</strong></div>
+      <small>${data.desc.substring(0,30)}${data.desc.length>30?'...':''}</small>`;
+    div.onclick=()=>this.openModal(data.img,data.name,data.desc);
+    container.appendChild(div);
+  },
 
-  openModal(img,name,desc){
-    document.getElementById(DOM_IDS.MODAL_IMG).src=img||'https://via.placeholder.com/200';
-    document.getElementById(DOM_IDS.MODAL_NAME).textContent=name;
-    document.getElementById(DOM_IDS.MODAL_DESC).textContent=desc;
-    document.getElementById(DOM_IDS.MODAL).style.display="flex";
-  },
-  closeModal(){ document.getElementById(DOM_IDS.MODAL).style.display="none"; }
+  openModal(img,name,desc){
+    document.getElementById(DOM_IDS.MODAL_IMG).src=img||'https://via.placeholder.com/200';
+    document.getElementById(DOM_IDS.MODAL_NAME).textContent=name;
+    document.getElementById(DOM_IDS.MODAL_DESC).textContent=desc;
+    document.getElementById(DOM_IDS.MODAL).style.display="flex";
+  },
+  closeModal(){ document.getElementById(DOM_IDS.MODAL).style.display="none"; }
 };
 
 NostrApp.init();
