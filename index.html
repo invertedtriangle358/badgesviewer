@@ -24,8 +24,9 @@
 </head>
 <body>
   <h1>Nostr NIP-56 Badges Viewer</h1>
-  <input id="pubkeyInput" placeholder="対象のpubkey(hex)" size="66">
-  <button onclick="loadAll()">Load</button>
+  <input id="npubInput" placeholder="対象のnpub" size="66">
+  <button onclick="loadFromNpub()">Load</button>
+  <button onclick="loginWithNostr()">Nostr Login</button>
 
   <div id="profile" class="profile"></div>
 
@@ -44,9 +45,11 @@
     <div id="awardsGiven" class="list"></div>
   </div>
 
+  <script src="https://unpkg.com/nostr-tools/lib/nostr.bundle.js"></script>
   <script>
     const relayUrl = "wss://relay.damus.io";
     let socket;
+    let currentPubkeyHex = "";
 
     function connectRelay() {
       socket = new WebSocket(relayUrl);
@@ -57,26 +60,52 @@
       };
     }
 
-    function loadAll() {
+    async function loginWithNostr() {
+      if (!window.nostr) {
+        alert("Nostr Login対応拡張が見つかりません");
+        return;
+      }
+      try {
+        const pubkey = await window.nostr.getPublicKey();
+        currentPubkeyHex = pubkey;
+        loadAll(pubkey);
+      } catch (e) {
+        console.error(e);
+        alert("Nostr Login失敗");
+      }
+    }
+
+    function loadFromNpub() {
+      const npub = document.getElementById("npubInput").value.trim();
+      if (!npub) return alert("npubを入力してください");
+      try {
+        const {type, data} = NostrTools.nip19.decode(npub);
+        if (type !== "npub") throw new Error("npub形式ではありません");
+        currentPubkeyHex = data;
+        loadAll(currentPubkeyHex);
+      } catch (e) {
+        console.error(e);
+        alert("npubのデコードに失敗しました");
+      }
+    }
+
+    function loadAll(pubkeyHex) {
       document.getElementById("profile").innerHTML = "";
       document.getElementById("received").innerHTML = "";
       document.getElementById("issued").innerHTML = "";
       document.getElementById("awardsGiven").innerHTML = "";
 
-      const pubkey = document.getElementById("pubkeyInput").value.trim();
-      if (!pubkey) return alert("pubkeyを入力してください");
-
       // プロフィール
-      socket.send(JSON.stringify(["REQ","profile",{kinds:[0],authors:[pubkey]}]));
+      socket.send(JSON.stringify(["REQ","profile",{kinds:[0],authors:[pubkeyHex]}]));
 
       // 受け取ったバッジ
-      socket.send(JSON.stringify(["REQ","received",{kinds:[8],"#p":[pubkey]}]));
+      socket.send(JSON.stringify(["REQ","received",{kinds:[8],"#p":[pubkeyHex]}]));
 
       // 発行したバッジ定義
-      socket.send(JSON.stringify(["REQ","issued",{kinds:[30008],authors:[pubkey]}]));
+      socket.send(JSON.stringify(["REQ","issued",{kinds:[30008],authors:[pubkeyHex]}]));
 
       // 授与した履歴
-      socket.send(JSON.stringify(["REQ","given",{kinds:[8],authors:[pubkey]}]));
+      socket.send(JSON.stringify(["REQ","given",{kinds:[8],authors:[pubkeyHex]}]));
     }
 
     function handleEvent(event) {
@@ -91,23 +120,22 @@
       if (event.kind === 8) {
         const aTag = event.tags.find(t=>t[0]==="a");
         if (aTag) {
-          const parts = aTag[1].split(":"); // 30008:issuer:identifier
+          const parts = aTag[1].split(":");
           if (parts.length===3 && parts[0]==="30008") {
             const issuer = parts[1];
             const identifier = parts[2];
-            // 定義を取得
             socket.send(JSON.stringify([
               "REQ", `def-${issuer}-${identifier}`,
               {kinds:[30008],authors:[issuer],"#d":[identifier]}
             ]));
           }
         }
-        // 授与した履歴用に出力
-        if (event.pubkey) {
+        // 授与した履歴出力
+        if (event.pubkey===currentPubkeyHex) {
           const targets = event.tags.filter(t=>t[0]==="p").map(t=>t[1]);
           if (targets.length>0) {
             const div=document.createElement("div");
-            div.textContent=`${event.pubkey.slice(0,8)}... が ${targets.length} 人に授与`;
+            div.textContent=`${event.pubkey.slice(0,8)}... が ${targets.length}人に授与`;
             document.getElementById("awardsGiven").appendChild(div);
           }
         }
@@ -127,9 +155,7 @@
       const div=document.createElement("div");
       div.className="badge";
       div.innerHTML=`<img src="${img}"><div><strong>${name}</strong></div><div>${desc}</div>`;
-      // 発行者が入力pubkeyなら「発行した」に、それ以外なら「受け取った」に追加
-      const inputPubkey=document.getElementById("pubkeyInput").value.trim();
-      if (issuer===inputPubkey) {
+      if (issuer===currentPubkeyHex) {
         document.getElementById("issued").appendChild(div);
       } else {
         document.getElementById("received").appendChild(div);
