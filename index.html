@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>Nostr Badges Viewer (NIP-58)</title>
+<title>Nostr Badges Viewer (Final)</title>
 <script src="https://unpkg.com/nostr-tools/lib/nostr.bundle.js"></script>
 <style>
   body { font-family: sans-serif; background: #f5f5f5; padding: 20px; }
@@ -10,29 +10,31 @@
   #npubInput { padding:8px; border:1px solid #ccc; border-radius:4px; width: 400px; }
   button { padding:8px 15px; margin-left:5px; cursor:pointer; background:#007bff; color:white; border:none; border-radius:4px; }
   button:hover { background:#0056b3; }
+  button:disabled { background:#ccc; cursor:not-allowed; }
+  #status { margin-top: 15px; padding: 10px; background: #e9ecef; border-radius: 4px; color: #495057; }
   .profile { background:white; padding:15px; border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.1); margin-bottom:20px; }
   .profile-header { display:flex; align-items:center; }
   .profile img { border-radius:50%; margin-right:15px; }
-  .badges { display:flex; flex-wrap:wrap; gap:15px; }
+  .badges { display:flex; flex-wrap:wrap; gap:15px; min-height: 50px; }
   .badge { background:white; border:1px solid #ddd; padding:15px; border-radius:8px; text-align:center; width:160px; box-shadow:0 1px 3px rgba(0,0,0,0.05); cursor:pointer; transition:transform 0.1s; }
   .badge:hover { transform:translateY(-3px); box-shadow:0 4px 8px rgba(0,0,0,0.1); }
   .badge-image { max-width:100px; max-height:100px; object-fit:contain; display:block; margin:0 auto 10px; }
   .mini-badges { margin-top:10px; }
   .mini-badges img { width:32px; height:32px; margin-right:5px; border-radius:4px; cursor:pointer; }
-  .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); justify-content:center; align-items:center; z-index:1000; }
+  .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); justify-content:center; align-items.center; z-index:1000; }
   .modal-content { background:white; padding:30px; border-radius:10px; max-width:90%; width:400px; text-align:center; box-shadow:0 5px 15px rgba(0,0,0,0.3); }
   .modal-content img { max-width:100%; height:auto; border-radius:6px; margin-bottom:15px; }
-  .modal-content h3 { margin-top:0; }
-  .modal-content button { margin-top:15px; background-color:#6c757d; color:white; border:none; padding:8px 12px; border-radius:4px; cursor:pointer; }
 </style>
 </head>
 <body>
 <h1>Nostr NIP-58 Badges Viewer</h1>
 <div>
   <input id="npubInput" placeholder="対象のnpubを入力してください" size="60">
-  <button id="loadButton">Load</button>
-  <button id="nostrLoginButton">Nostr Login</button>
+  <button id="loadButton" disabled>Load</button>
+  <button id="nostrLoginButton" disabled>Nostr Login</button>
 </div>
+
+<div id="status">リレーに接続中...</div>
 
 <div id="profile" class="profile"></div>
 
@@ -43,183 +45,240 @@
 <div id="issuedBadges" class="badges"></div>
 
 <div id="badgeModal" class="modal" onclick="NostrApp.closeModal()">
-  <div class="modal-content" onclick="event.stopPropagation()">
-    <img id="modalImg" class="badge-image">
-    <h3 id="modalName"></h3>
-    <p id="modalDesc"></p>
-    <button onclick="NostrApp.closeModal()">閉じる</button>
-  </div>
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <img id="modalImg" class="badge-image">
+        <h3 id="modalName"></h3>
+        <p id="modalDesc"></p>
+        <button onclick="NostrApp.closeModal()">閉じる</button>
+    </div>
 </div>
 
 <script>
-const DOM_IDS = {
-  INPUT: "npubInput",
-  PROFILE: "profile",
-  RECEIVED: "receivedBadges",
-  ISSUED: "issuedBadges",
-  MODAL: "badgeModal",
-  MODAL_IMG: "modalImg",
-  MODAL_NAME: "modalName",
-  MODAL_DESC: "modalDesc",
-  PROFILE_BADGES: "profileBadges"
+const DOM = {
+  loadButton: document.getElementById("loadButton"),
+  loginButton: document.getElementById("nostrLoginButton"),
+  npubInput: document.getElementById("npubInput"),
+  status: document.getElementById("status"),
+  profile: document.getElementById("profile"),
+  receivedBadges: document.getElementById("receivedBadges"),
+  issuedBadges: document.getElementById("issuedBadges"),
+  modal: document.getElementById("badgeModal"),
+  modalImg: document.getElementById("modalImg"),
+  modalName: document.getElementById("modalName"),
+  modalDesc: document.getElementById("modalDesc"),
+  profileBadges: "profileBadges" // これはIDなので文字列のまま
 };
 
-// ★★★★★ 修正点 1: バッジ対応リレーを追加 ★★★★★
 const RELAY_URLS = [
   "wss://relay.damus.io",
   "wss://relay.nostr.band",
   "wss://nos.lol",
-  "wss://r.kojira.io",
+  "wss://purplepag.es/ws",
   "wss://relay.snort.social",
+  "wss://nostr.pub",
   "wss://relay-jp.nostr.wirednet.jp",
-  "wss://yabu.me",
-  "wss://nostr.wine"
 ];
 
 const NostrApp = {
   sockets: [],
+  activeSubscriptions: new Set(),
   currentPubkeyHex: "",
   badgeDefs: {},
   receivedBadgeKeys: {},
   profileBadgeKeys: [],
+  hasRenderedProfile: false,
 
   init() {
+    DOM.loadButton.addEventListener("click", () => this.loadFromNpub());
+    DOM.loginButton.addEventListener("click", () => this.loginWithNostr());
+    DOM.npubInput.addEventListener("keypress", e => { if (e.key === 'Enter') this.loadFromNpub(); });
     this.connectRelays();
-    // ★★★★★ 修正点 2: WebSocket接続を待つため、実行を少し遅延させる ★★★★★
-    document.getElementById("loadButton").addEventListener("click", () => setTimeout(() => this.loadFromNpub(), 200));
-    document.getElementById("nostrLoginButton").addEventListener("click", () => setTimeout(() => this.loginWithNostr(), 200));
-    document.getElementById(DOM_IDS.INPUT).addEventListener("keypress", e => { if (e.key==='Enter') setTimeout(() => this.loadFromNpub(), 200); });
   },
 
   connectRelays() {
+    let connectedCount = 0;
+    DOM.status.textContent = `接続中... (0/${RELAY_URLS.length})`;
+
     RELAY_URLS.forEach(url => {
-      try {
-        const socket = new WebSocket(url);
-        this.sockets.push(socket);
-        socket.onopen = () => console.log("Relay connected:", url);
-        socket.onclose = () => console.log("Relay disconnected:", url);
-        socket.onerror = e => console.error("Relay error:", url, e);
-        socket.onmessage = e => {
-          try {
-            const data = JSON.parse(e.data);
-            if (data[0]==="EVENT") this.handleEvent(data[2]);
-            if (data[0]==="EOSE") console.log(`EOSE from ${url} for sub ${data[1]}`);
-          } catch(err){ console.error("Relay message parse error:", err); }
-        };
-      } catch(err){ console.error(`Failed to connect to relay ${url}:`, err); }
+      const socket = new WebSocket(url);
+      this.sockets.push(socket);
+
+      socket.onopen = () => {
+        connectedCount++;
+        DOM.status.textContent = `リレーに接続しました (${connectedCount}/${RELAY_URLS.length})`;
+        DOM.loadButton.disabled = false;
+        DOM.loginButton.disabled = false;
+        console.log("Relay connected:", url);
+      };
+
+      socket.onclose = () => {
+        console.log("Relay disconnected:", url);
+      };
+
+      socket.onerror = e => console.error("Relay error:", url, e);
+
+      socket.onmessage = e => {
+        try {
+          const [type, subId, event] = JSON.parse(e.data);
+          if (type === "EVENT") {
+            this.handleEvent(event);
+          }
+        } catch (err) { console.error("Relay message parse error:", err); }
+      };
     });
   },
 
-  sendToAllRelays(msg) { this.sockets.forEach(s=>{if(s.readyState===WebSocket.OPEN)s.send(JSON.stringify(msg));}); },
-
-  loadAll(pubkeyHex){
-    ["PROFILE","RECEIVED","ISSUED"].forEach(id => document.getElementById(DOM_IDS[id]).innerHTML="");
-    this.badgeDefs={}; this.receivedBadgeKeys={}; this.profileBadgeKeys=[];
-    
-    this.currentPubkeyHex = pubkeyHex;
-    console.log(`Loading data for ${pubkeyHex}`);
-
-    // 1. プロフィール (Kind 0)
-    this.sendToAllRelays(["REQ",`profile_${pubkeyHex.slice(0,8)}`,{kinds:[0],authors:[pubkeyHex],limit:1}]);
-    
-    // 2. 受け取ったバッジ (Kind 8)
-    this.sendToAllRelays(["REQ",`received_${pubkeyHex.slice(0,8)}`,{kinds:[8],"#p":[pubkeyHex]}]);
-    
-    // 3. 発行したバッジ定義 (Kind 30008)
-    this.sendToAllRelays(["REQ",`issued_${pubkeyHex.slice(0,8)}`,{kinds:[30008],authors:[pubkeyHex]}]);
-
-    // 4. プロフィール表示バッジ (Kind 30009)
-    this.sendToAllRelays(["REQ",`profile_badges_${pubkeyHex.slice(0,8)}`,{kinds:[30009],authors:[pubkeyHex],limit:1}]);
+  // ★★★★★ 改善点 1: 購読管理の導入 ★★★★★
+  generateSubId(prefix) {
+    return `${prefix}-${Math.random().toString(36).substring(2, 8)}`;
   },
 
-  loginWithNostr(){
-    if(!window.nostr){alert("Nostr Login対応拡張が見つかりません"); return;}
-    try {
-      window.nostr.getPublicKey().then(p => {
-        if(p) this.loadAll(p);
+  sendRequest(filter) {
+    const subId = this.generateSubId(filter.kinds.join('-'));
+    const req = ["REQ", subId, filter];
+    this.activeSubscriptions.add(subId);
+    console.log("Sending REQ:", req);
+    this.sockets.forEach(s => {
+      if (s.readyState === WebSocket.OPEN) s.send(JSON.stringify(req));
+    });
+  },
+
+  unsubscribeAll() {
+    if (this.activeSubscriptions.size === 0) return;
+    console.log("Closing all subscriptions:", this.activeSubscriptions);
+    this.activeSubscriptions.forEach(subId => {
+      const closeReq = ["CLOSE", subId];
+      this.sockets.forEach(s => {
+        if (s.readyState === WebSocket.OPEN) s.send(JSON.stringify(closeReq));
       });
-    } catch(e){ console.error("Login failed",e); alert("Nostr Login失敗"); }
+    });
+    this.activeSubscriptions.clear();
+  },
+  
+  // ★★★★★ 改善点 2: UIフィードバックの強化と確実な購読終了 ★★★★★
+  loadAll(pubkeyHex) {
+    this.unsubscribeAll(); // 以前の購読を全て終了
+
+    // 状態をリセット
+    DOM.profile.innerHTML = "";
+    DOM.receivedBadges.innerHTML = "";
+    DOM.issuedBadges.innerHTML = "";
+    this.badgeDefs = {};
+    this.receivedBadgeKeys = {};
+    this.profileBadgeKeys = [];
+    this.currentPubkeyHex = pubkeyHex;
+    this.hasRenderedProfile = false;
+    
+    DOM.status.textContent = `${NostrTools.nip19.npubEncode(pubkeyHex).slice(0, 16)}... の情報を読み込み中...`;
+
+    this.sendRequest({ kinds: [0], authors: [pubkeyHex], limit: 1 });
+    this.sendRequest({ kinds: [8], "#p": [pubkeyHex] });
+    this.sendRequest({ kinds: [30008], authors: [pubkeyHex] });
+    this.sendRequest({ kinds: [30009], authors: [pubkeyHex], limit: 1 });
   },
 
-  loadFromNpub(){
-    const npub=document.getElementById(DOM_IDS.INPUT).value.trim();
-    if(!npub) return alert("npubを入力してください");
-    try{
-      const {type,data}=NostrTools.nip19.decode(npub);
-      if(type!=="npub") throw new Error("npub形式ではありません");
+  loginWithNostr() {
+    if (!window.nostr) {
+      alert("Nostr Login対応拡張が見つかりません");
+      return;
+    }
+    window.nostr.getPublicKey().then(p => {
+      if (p) this.loadAll(p);
+    }).catch(e => {
+      console.error("Login failed", e);
+      alert("Nostr Login失敗");
+    });
+  },
+
+  loadFromNpub() {
+    const npub = DOM.npubInput.value.trim();
+    if (!npub) return alert("npubを入力してください");
+    try {
+      const { type, data } = NostrTools.nip19.decode(npub);
+      if (type !== "npub") throw new Error("npub形式ではありません");
       this.loadAll(data);
-    }catch(e){ console.error("npub decode failed",e); alert("npub decode failed"); }
+    } catch (e) {
+      console.error("npub decode failed", e);
+      alert("npub decode failed");
+    }
   },
 
-  handleEvent(event){
+  handleEvent(event) {
     switch(event.kind){
-      case 0: if(event.pubkey===this.currentPubkeyHex) this.renderProfile(event); break;
-      case 8: if(event.tags.some(t=>t[0]==="p"&&t[1]===this.currentPubkeyHex)) this.processReceivedBadge(event); break;
+      case 0: if(event.pubkey === this.currentPubkeyHex && !this.hasRenderedProfile) {
+                this.hasRenderedProfile = true;
+                this.renderProfile(event);
+              }
+              break;
+      case 8: if(event.tags.some(t => t[0] === "p" && t[1] === this.currentPubkeyHex)) this.processReceivedBadge(event); break;
       case 30008: this.processBadgeDefinition(event); break;
-      case 30009: if(event.pubkey===this.currentPubkeyHex) this.processProfileBadges(event); break;
-      default: break;
+      case 30009: if(event.pubkey === this.currentPubkeyHex) this.processProfileBadges(event); break;
     }
   },
   
   renderProfile(event){
-    try{
-      const profile=JSON.parse(event.content);
-      const div=document.getElementById(DOM_IDS.PROFILE);
-      div.innerHTML=`
-      <div class="profile-header">
-        <img src="${profile.picture||'https://via.placeholder.com/100'}" width="100" alt="Profile Picture">
-        <div>
-          <h2>${profile.display_name||profile.name||event.pubkey.slice(0,8)}</h2>
-          <p><strong>npub:</strong> ${NostrTools.nip19.npubEncode(event.pubkey)}</p>
-          <p>${profile.about||'自己紹介はありません。'}</p>
-        </div>
+    DOM.status.textContent = "プロフィール情報を表示しました。";
+    const profile = JSON.parse(event.content);
+    DOM.profile.innerHTML=`
+    <div class="profile-header">
+      <img src="${profile.picture || 'https://via.placeholder.com/100'}" width="100" alt="Profile Picture">
+      <div>
+        <h2>${profile.display_name || profile.name || event.pubkey.slice(0, 8)}</h2>
+        <p><strong>npub:</strong> ${NostrTools.nip19.npubEncode(event.pubkey)}</p>
+        <p>${profile.about || '自己紹介はありません。'}</p>
       </div>
-      <div class="mini-badges" id="${DOM_IDS.PROFILE_BADGES}"></div>`;
+    </div>
+    <div class="mini-badges" id="${DOM.profileBadges}"></div>`;
 
-      const badgeKeysFromProfile = event.tags
-        .filter(t => t[0] === 'a' && t[1]?.startsWith('30008:'))
-        .map(t => t[1].substring('30008:'.length));
-      
-      this.updateProfileBadges(badgeKeysFromProfile);
-      this.renderProfileBadges();
-    }catch(e){ console.error("renderProfile error:",e); }
+    const badgeKeysFromProfile = event.tags
+      .filter(t => t[0] === 'a' && t[1]?.startsWith('30008:'))
+      .map(t => t[1].substring('30008:'.length));
+    
+    if (badgeKeysFromProfile.length > 0) {
+        DOM.status.textContent = "プロフィールバッジを検出。定義を取得中...";
+    }
+    this.updateProfileBadges(badgeKeysFromProfile);
+    this.renderProfileBadges();
   },
 
   processReceivedBadge(event){
     const aTag=event.tags.find(t=>t[0]==="a"); if(!aTag || !aTag[1]) return;
     const parts=aTag[1].split(":"); if(parts.length!==3||parts[0]!=="30008") return;
-    const [kind,issuer,identifier]=parts;
+    const [,issuer,identifier]=parts;
     const badgeKey=`${issuer}:${identifier}`;
     this.receivedBadgeKeys[badgeKey]=true;
 
-    if(this.badgeDefs[badgeKey]) this.renderBadge(issuer,identifier,this.badgeDefs[badgeKey],false);
-    else this.sendToAllRelays(["REQ",`def_${issuer.slice(0,4)}_${identifier.slice(0,4)}`,{kinds:[30008],authors:[issuer],"#d":[identifier],limit:1}]);
+    if(this.badgeDefs[badgeKey]) {
+      this.renderBadge(issuer,identifier,this.badgeDefs[badgeKey],false);
+    } else {
+      this.sendRequest({ kinds: [30008], authors: [issuer], "#d": [identifier], limit: 1 });
+    }
   },
 
   processBadgeDefinition(event){
-    const id=event.tags.find(t=>t[0]==="d")?.[1]; if(!id) return;
-    const badgeKey=`${event.pubkey}:${id}`;
+    const id = event.tags.find(t => t[0] === "d")?.[1]; if (!id) return;
+    const badgeKey = `${event.pubkey}:${id}`;
+    if (this.badgeDefs[badgeKey]) return; // 既に処理済みならスキップ
+
     const badgeData={
-      name:event.tags.find(t=>t[0]==="name")?.[1]||"Unnamed Badge",
-      desc:event.tags.find(t=>t[0]==="description")?.[1]||"",
-      // ★★★★★ 修正点 3: 'image' がなければ 'thumb' を参照する ★★★★★
-      img: event.tags.find(t=>t[0]==="image")?.[1] || event.tags.find(t=>t[0]==="thumb")?.[1] || "",
-      issuer:event.pubkey
+      name: event.tags.find(t => t[0] === "name")?.[1] || "Unnamed Badge",
+      desc: event.tags.find(t => t[0] === "description")?.[1] || "",
+      img: event.tags.find(t => t[0] === "image")?.[1] || event.tags.find(t => t[0] === "thumb")?.[1] || "",
+      issuer: event.pubkey
     };
-    this.badgeDefs[badgeKey]=badgeData;
+    this.badgeDefs[badgeKey] = badgeData;
     
-    const isIssued=event.pubkey===this.currentPubkeyHex;
-    const isReceived=this.receivedBadgeKeys[badgeKey];
-    
-    if(isIssued) this.renderBadge(event.pubkey,id,badgeData,true);
-    if(isReceived) this.renderBadge(event.pubkey,id,badgeData,false);
-    
+    DOM.status.textContent = `バッジ定義「${badgeData.name}」を取得しました。`;
+
+    if(event.pubkey === this.currentPubkeyHex) this.renderBadge(event.pubkey, id, badgeData, true);
+    if(this.receivedBadgeKeys[badgeKey]) this.renderBadge(event.pubkey, id, badgeData, false);
     if(this.profileBadgeKeys.includes(badgeKey)) this.renderProfileBadges();
   },
   
   processProfileBadges(event){
-    const aTags = event.tags.filter(t => t[0] === 'a' && t[1]?.startsWith('30008:'));
-    const newBadgeKeys = aTags.map(t => t[1].substring('30008:'.length));
+    const newBadgeKeys = event.tags
+      .filter(t => t[0] === 'a' && t[1]?.startsWith('30008:'))
+      .map(t => t[1].substring('30008:'.length));
     
     this.updateProfileBadges(newBadgeKeys);
     this.renderProfileBadges();
@@ -240,14 +299,14 @@ const NostrApp = {
         if (!this.badgeDefs[key]) {
             const [issuer, identifier] = key.split(':');
             if (issuer && identifier) {
-               this.sendToAllRelays(["REQ",`profile_def_${issuer.slice(0,4)}_${identifier.slice(0,4)}`,{kinds:[30008],authors:[issuer],"#d":[identifier],limit:1}]);
+               this.sendRequest({ kinds: [30008], authors: [issuer], "#d": [identifier], limit: 1 });
             }
         }
     });
   },
 
   renderProfileBadges() {
-    const profileDiv = document.getElementById(DOM_IDS.PROFILE_BADGES);
+    const profileDiv = document.getElementById(DOM.profileBadges);
     if (!profileDiv) return;
     profileDiv.innerHTML = '';
     this.profileBadgeKeys.forEach(badgeKey => {
@@ -262,27 +321,32 @@ const NostrApp = {
     });
   },
 
-  renderBadge(issuer,id,data,isIssued){
-    const container=document.getElementById(isIssued?DOM_IDS.ISSUED:DOM_IDS.RECEIVED); if(!container) return;
-    const badgeKey=`${issuer}:${id}`;
-    if(container.querySelector(`[data-badge-key="${badgeKey}"]`)) return;
-    const div=document.createElement("div");
-    div.className="badge"; div.dataset.badgeKey=badgeKey;
-    div.innerHTML=`
-      <img src="${data.img||'https://via.placeholder.com/100'}" class="badge-image" alt="${data.name}">
+  renderBadge(issuer, id, data, isIssued) {
+    const container = isIssued ? DOM.issuedBadges : DOM.receivedBadges;
+    const badgeKey = `${issuer}:${id}`;
+    if (container.querySelector(`[data-badge-key="${badgeKey}"]`)) return;
+    
+    const div = document.createElement("div");
+    div.className = "badge";
+    div.dataset.badgeKey = badgeKey;
+    div.innerHTML = `
+      <img src="${data.img || 'https://via.placeholder.com/100'}" class="badge-image" alt="${data.name}">
       <div><strong>${data.name}</strong></div>
-      <small>${data.desc.substring(0,30)}${data.desc.length>30?'...':''}</small>`;
-    div.onclick=()=>this.openModal(data.img,data.name,data.desc);
+      <small>${data.desc.substring(0, 30)}${data.desc.length > 30 ? '...' : ''}</small>`;
+    div.onclick = () => this.openModal(data.img, data.name, data.desc);
     container.appendChild(div);
   },
 
-  openModal(img,name,desc){
-    document.getElementById(DOM_IDS.MODAL_IMG).src=img||'https://via.placeholder.com/200';
-    document.getElementById(DOM_IDS.MODAL_NAME).textContent=name;
-    document.getElementById(DOM_IDS.MODAL_DESC).textContent=desc;
-    document.getElementById(DOM_IDS.MODAL).style.display="flex";
+  openModal(img, name, desc) {
+    DOM.modalImg.src = img || 'https://via.placeholder.com/200';
+    DOM.modalName.textContent = name;
+    DOM.modalDesc.textContent = desc;
+    DOM.modal.style.display = "flex";
   },
-  closeModal(){ document.getElementById(DOM_IDS.MODAL).style.display="none"; }
+
+  closeModal() {
+    DOM.modal.style.display = "none";
+  }
 };
 
 NostrApp.init();
