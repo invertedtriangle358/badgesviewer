@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Nostr Badges Viewer</title>
+  <style>
+    body { font-family: sans-serif; background: #f5f5f5; padding: 20px; }
+    .section { margin-bottom: 30px; }
+    h2 { margin-top: 20px; }
+    .profile {
+      background: white; padding: 15px; border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1); margin-bottom: 20px;
+    }
+    .badges { display: flex; flex-wrap: wrap; gap: 10px; }
+    .badge {
+      background: white; border: 1px solid #ccc;
+      padding: 10px; border-radius: 6px;
+      text-align: center; width: 140px;
+    }
+    .badge img { max-width: 100px; display: block; margin: 0 auto 5px; }
+    .list { background:white; padding:10px; border-radius:6px; }
+    .list div { margin-bottom: 6px; }
+  </style>
+</head>
+<body>
+  <h1>Nostr NIP-56 Badges Viewer</h1>
+  <input id="pubkeyInput" placeholder="対象のpubkey(hex)" size="66">
+  <button onclick="loadAll()">Load</button>
+
+  <div id="profile" class="profile"></div>
+
+  <div class="section">
+    <h2>受け取ったバッジ</h2>
+    <div id="received" class="badges"></div>
+  </div>
+
+  <div class="section">
+    <h2>発行したバッジ定義</h2>
+    <div id="issued" class="badges"></div>
+  </div>
+
+  <div class="section">
+    <h2>授与した履歴</h2>
+    <div id="awardsGiven" class="list"></div>
+  </div>
+
+  <script>
+    const relayUrl = "wss://relay.damus.io";
+    let socket;
+
+    function connectRelay() {
+      socket = new WebSocket(relayUrl);
+      socket.onopen = () => console.log("Relay connected:", relayUrl);
+      socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data[0] === "EVENT") handleEvent(data[2]);
+      };
+    }
+
+    function loadAll() {
+      document.getElementById("profile").innerHTML = "";
+      document.getElementById("received").innerHTML = "";
+      document.getElementById("issued").innerHTML = "";
+      document.getElementById("awardsGiven").innerHTML = "";
+
+      const pubkey = document.getElementById("pubkeyInput").value.trim();
+      if (!pubkey) return alert("pubkeyを入力してください");
+
+      // プロフィール
+      socket.send(JSON.stringify(["REQ","profile",{kinds:[0],authors:[pubkey]}]));
+
+      // 受け取ったバッジ
+      socket.send(JSON.stringify(["REQ","received",{kinds:[8],"#p":[pubkey]}]));
+
+      // 発行したバッジ定義
+      socket.send(JSON.stringify(["REQ","issued",{kinds:[30008],authors:[pubkey]}]));
+
+      // 授与した履歴
+      socket.send(JSON.stringify(["REQ","given",{kinds:[8],authors:[pubkey]}]));
+    }
+
+    function handleEvent(event) {
+      if (event.kind === 0) {
+        const c = JSON.parse(event.content);
+        document.getElementById("profile").innerHTML = `
+          <strong>Name:</strong> ${c.name||""}<br>
+          <strong>About:</strong> ${c.about||""}<br>
+          <img src="${c.picture||""}" width="100">`;
+      }
+
+      if (event.kind === 8) {
+        const aTag = event.tags.find(t=>t[0]==="a");
+        if (aTag) {
+          const parts = aTag[1].split(":"); // 30008:issuer:identifier
+          if (parts.length===3 && parts[0]==="30008") {
+            const issuer = parts[1];
+            const identifier = parts[2];
+            // 定義を取得
+            socket.send(JSON.stringify([
+              "REQ", `def-${issuer}-${identifier}`,
+              {kinds:[30008],authors:[issuer],"#d":[identifier]}
+            ]));
+          }
+        }
+        // 授与した履歴用に出力
+        if (event.pubkey) {
+          const targets = event.tags.filter(t=>t[0]==="p").map(t=>t[1]);
+          if (targets.length>0) {
+            const div=document.createElement("div");
+            div.textContent=`${event.pubkey.slice(0,8)}... が ${targets.length} 人に授与`;
+            document.getElementById("awardsGiven").appendChild(div);
+          }
+        }
+      }
+
+      if (event.kind === 30008) {
+        const id = event.tags.find(t=>t[0]==="d")?.[1];
+        const name = event.tags.find(t=>t[0]==="name")?.[1] || "Unnamed";
+        const desc = event.tags.find(t=>t[0]==="description")?.[1] || "";
+        const img  = event.tags.find(t=>t[0]==="image")?.[1] || "";
+
+        renderBadge(event.pubkey, id, name, desc, img);
+      }
+    }
+
+    function renderBadge(issuer, id, name, desc, img) {
+      const div=document.createElement("div");
+      div.className="badge";
+      div.innerHTML=`<img src="${img}"><div><strong>${name}</strong></div><div>${desc}</div>`;
+      // 発行者が入力pubkeyなら「発行した」に、それ以外なら「受け取った」に追加
+      const inputPubkey=document.getElementById("pubkeyInput").value.trim();
+      if (issuer===inputPubkey) {
+        document.getElementById("issued").appendChild(div);
+      } else {
+        document.getElementById("received").appendChild(div);
+      }
+    }
+
+    connectRelay();
+  </script>
+</body>
+</html>
