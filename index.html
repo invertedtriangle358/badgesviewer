@@ -47,18 +47,44 @@
 
   <script src="https://unpkg.com/nostr-tools/lib/nostr.bundle.js"></script>
   <script>
-    const relayUrl = "wss://relay.damus.io";
-    let socket;
-    let currentPubkeyHex = "";
+// 複数リレーを配列で管理
+const relayUrls = [
+  "wss://relay.damus.io",
+  "wss://nos.lol",
+  "wss://relay.nostr.band",
+  "wss://relay.snort.social",
+  "wss://relay.nostrcheck.me",
+  "wss://relay-jp.nostr.wirednet.jp",
+  "wss://yabu.me",
+  "wss://r.kojira.io"
+];
 
-    function connectRelay() {
-      socket = new WebSocket(relayUrl);
-      socket.onopen = () => console.log("Relay connected:", relayUrl);
-      socket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data[0] === "EVENT") handleEvent(data[2]);
-      };
+let sockets = [];
+let currentPubkeyHex = "";
+
+// 全リレーに接続
+function connectRelays() {
+  relayUrls.forEach(url => {
+    const socket = new WebSocket(url);
+    sockets.push(socket);
+
+    socket.onopen = () => console.log("Relay connected:", url);
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data[0] === "EVENT") handleEvent(data[2]);
+    };
+  });
+}
+
+// 全リレーにREQ送信
+function sendToAllRelays(message) {
+  sockets.forEach(s => {
+    if (s.readyState === WebSocket.OPEN) {
+      s.send(JSON.stringify(message));
     }
+  });
+}
+
 
     async function loginWithNostr() {
       if (!window.nostr) {
