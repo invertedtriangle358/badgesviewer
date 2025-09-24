@@ -2,10 +2,10 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>Nostr Badges Viewer (Refactored)</title>
+    <title>Nostr Badges Viewer (Fixed)</title>
     <script src="https://unpkg.com/nostr-tools/lib/nostr.bundle.js"></script>
     <style>
-        /* --- スタイル定義 --- */
+        /* --- スタイル定義 (省略、変更なし) --- */
         body { font-family: sans-serif; background: #f5f5f5; padding: 20px; }
         h1, h2 { color: #333; }
         h2 { margin-top: 20px; }
@@ -78,7 +78,6 @@
     </div>
 
     <script>
-        // DOM要素のIDを定数として定義
         const DOM_IDS = {
             INPUT: "npubInput",
             PROFILE: "profile",
@@ -91,7 +90,6 @@
             PROFILE_BADGES: "profileBadges"
         };
         
-        // リレーURL一覧 (元のコードの末尾の引用符漏れを修正)
         const RELAY_URLS = [
             "wss://relay.damus.io",
             "wss://nos.lol",
@@ -103,18 +101,17 @@
             "wss://r.kojira.io"
         ];
 
-        /**
-         * Nostrアプリケーション全体を管理するオブジェクト
-         */
         const NostrApp = {
             sockets: [],
             currentPubkeyHex: "",
-            badgeDefs: {}, // バッジ定義をキャッシュするためのマップ: `issuer:identifier` -> badge_data
+            badgeDefs: {}, // バッジ定義のキャッシュ: `issuer:identifier` -> badge_data
+            pendingBadges: {}, // バッジ受領済みだが、定義が未取得のリスト: `issuer:identifier` -> {issuer, identifier}
             
             /**
              * リレーへの接続を確立する
              */
             connectRelays() {
+                // (変更なし: WebSocket接続のロジック)
                 RELAY_URLS.forEach(url => {
                     try {
                         const socket = new WebSocket(url);
@@ -144,6 +141,7 @@
              * @param {Array} message - Nostrメッセージ配列
              */
             sendToAllRelays(message) {
+                // (変更なし)
                 this.sockets.forEach(s => {
                     if (s.readyState === WebSocket.OPEN) {
                         s.send(JSON.stringify(message));
@@ -152,10 +150,34 @@
             },
 
             /**
+             * 指定された公開鍵の全データをリレーにリクエストする
+             * @param {string} pubkeyHex - 64桁の16進数の公開鍵
+             */
+            loadAll(pubkeyHex) {
+                // DOMをクリア
+                document.getElementById(DOM_IDS.PROFILE).innerHTML = "";
+                document.getElementById(DOM_IDS.RECEIVED).innerHTML = "";
+                document.getElementById(DOM_IDS.ISSUED).innerHTML = "";
+                
+                // キャッシュと保留リストをクリア
+                this.badgeDefs = {};
+                this.pendingBadges = {};
+
+                // プロフィール (kind 0)
+                this.sendToAllRelays(["REQ", "profile_req", { kinds: [0], authors: [pubkeyHex], limit: 1 }]);
+
+                // 受け取ったバッジ (kind 8)
+                this.sendToAllRelays(["REQ", "received_badges_req", { kinds: [8], "#p": [pubkeyHex] }]);
+
+                // 発行したバッジ定義 (kind 30008)
+                this.sendToAllRelays(["REQ", "issued_defs_req", { kinds: [30008], authors: [pubkeyHex] }]);
+            },
+
+            /**
              * Nostr拡張機能を使用してログインする
              */
             async loginWithNostr() {
-                if (!window.nostr) {
+                 if (!window.nostr) {
                     alert("Nostr Login対応拡張が見つかりません (例: Alby, nos2x)");
                     return;
                 }
@@ -177,7 +199,6 @@
                 if (!npub) return alert("npubを入力してください");
                 
                 try {
-                    // NostrToolsがグローバルにあることを前提
                     const {type, data} = NostrTools.nip19.decode(npub);
                     if (type !== "npub") throw new Error("npub形式ではありません");
                     this.currentPubkeyHex = data;
@@ -189,57 +210,29 @@
             },
 
             /**
-             * 指定された公開鍵の全データをリレーにリクエストする
-             * @param {string} pubkeyHex - 64桁の16進数の公開鍵
-             */
-            loadAll(pubkeyHex) {
-                // DOMをクリア
-                document.getElementById(DOM_IDS.PROFILE).innerHTML = "";
-                document.getElementById(DOM_IDS.RECEIVED).innerHTML = "";
-                document.getElementById(DOM_IDS.ISSUED).innerHTML = "";
-                
-                // プロフィール (kind 0)
-                this.sendToAllRelays(["REQ", "profile_req", { kinds: [0], authors: [pubkeyHex], limit: 1 }]);
-
-                // 受け取ったバッジ (kind 8)
-                this.sendToAllRelays(["REQ", "received_badges_req", { kinds: [8], "#p": [pubkeyHex] }]);
-
-                // 発行したバッジ定義 (kind 30008)
-                this.sendToAllRelays(["REQ", "issued_defs_req", { kinds: [30008], authors: [pubkeyHex] }]);
-            },
-
-            /**
              * リレーから受信したイベントを処理する
-             * @param {Object} event - Nostrイベントオブジェクト
              */
             handleEvent(event) {
                 switch (event.kind) {
                     case 0:
-                        // プロフィールイベント
                         if (event.pubkey === this.currentPubkeyHex) {
                             this.renderProfile(event);
                         }
                         break;
                     case 8:
-                        // バッジ受領イベント (NIP-58)
                         if (event.tags.some(t => t[0] === "p" && t[1] === this.currentPubkeyHex)) {
                             this.processReceivedBadge(event);
                         }
                         break;
                     case 30008:
-                        // バッジ定義イベント (NIP-58)
                         this.processBadgeDefinition(event);
                         break;
                     default:
-                        // 他のイベントは無視
                         break;
                 }
             },
 
-            /**
-             * プロフィール (kind 0) イベントをDOMに描画する
-             * @param {Object} event - kind 0 イベント
-             */
+            // (renderProfile は変更なし)
             renderProfile(event) {
                 try {
                     const profile = JSON.parse(event.content);
@@ -261,36 +254,40 @@
             },
 
             /**
-             * 受領したバッジ (kind 8) イベントからバッジ定義をリクエストする
-             * @param {Object} event - kind 8 イベント
+             * 【修正】受領したバッジ (kind 8) イベントからバッジ定義をリクエストし、保留リストに入れる
              */
             processReceivedBadge(event) {
                 const aTag = event.tags.find(t => t[0] === "a");
                 if (!aTag) return;
 
                 const parts = aTag[1].split(":");
-                // aTagの形式: 30008:<pubkey>:<identifier>
                 if (parts.length === 3 && parts[0] === "30008") {
                     const [kind, issuer, identifier] = parts;
                     const badgeKey = `${issuer}:${identifier}`;
 
-                    // キャッシュに既にあれば描画、なければリクエスト
+                    // 1. キャッシュに既にあれば描画
                     if (this.badgeDefs[badgeKey]) {
                         this.renderBadge(issuer, identifier, this.badgeDefs[badgeKey], false);
                     } else {
-                        // バッジ定義をリクエスト (kind 30008)
-                        const subId = `def_req_${issuer.slice(0, 4)}_${identifier.slice(0, 4)}`;
-                        this.sendToAllRelays([
-                            "REQ", subId,
-                            { kinds: [30008], authors: [issuer], "#d": [identifier], limit: 1 }
-                        ]);
+                        // 2. キャッシュになく、保留リストにもなければリクエストを送信
+                        if (!this.pendingBadges[badgeKey]) {
+                            this.pendingBadges[badgeKey] = { issuer, identifier }; // 保留リストに追加
+                            
+                            // バッジ定義をリクエスト (kind 30008)
+                            const subId = `def_req_${issuer.slice(0, 8)}_${identifier.slice(0, 8)}`; // よりユニークなID
+                            this.sendToAllRelays([
+                                "REQ", subId,
+                                { kinds: [30008], authors: [issuer], "#d": [identifier], limit: 1 }
+                            ]);
+                            console.log(`Requesting badge def for: ${badgeKey}`);
+                        } 
+                        // 3. キャッシュになく、保留リストにあれば、イベントが来るのを待つ (何もしない)
                     }
                 }
             },
 
             /**
-             * バッジ定義 (kind 30008) イベントを処理し、キャッシュして描画する
-             * @param {Object} event - kind 30008 イベント
+             * 【修正】バッジ定義 (kind 30008) イベントを処理し、キャッシュして描画する
              */
             processBadgeDefinition(event) {
                 const id = event.tags.find(t => t[0] === "d")?.[1];
@@ -305,31 +302,42 @@
                 
                 const badgeKey = `${event.pubkey}:${id}`;
                 this.badgeDefs[badgeKey] = badgeData; // キャッシュに保存
+                delete this.pendingBadges[badgeKey]; // 保留リストから削除
 
                 // 自分自身が発行者なら発行バッジ、そうでなければ受領バッジとして描画
                 const isIssued = event.pubkey === this.currentPubkeyHex;
-                this.renderBadge(event.pubkey, id, badgeData, isIssued);
+                
+                // 発行バッジの場合、ここで即座に描画
+                if (isIssued) {
+                    this.renderBadge(event.pubkey, id, badgeData, true);
+                } 
+                
+                // 受領バッジの場合、描画処理を呼び出す (Kind 8 イベントが先に処理されていなくても、これで描画される)
+                // Kind 8イベントで受領しているかどうかの確実な確認はリレー側に依存するため、ここでは簡略化し、
+                // 定義が取得できた時点で、それが現在のユーザーに関係しているかどうか（発行バッジか受領バッジか）を判断して描画します。
+                // *本来はKind 8イベントとの紐付けが必要ですが、表示漏れを防ぐために定義を優先します。*
+                if (!isIssued) {
+                    // 受領バッジとして描画するが、Kind 8イベントによってトリガーされたものか、発行バッジリクエストによって取得されたものかを確認
+                    // (ここでは、描画メソッド内部で重複をチェックするため、単純に呼び出します)
+                    this.renderBadge(event.pubkey, id, badgeData, false);
+                }
             },
 
             /**
-             * バッジをDOMに描画する
-             * @param {string} issuer - バッジ発行者のpubkey
-             * @param {string} id - バッジのdタグ識別子
-             * @param {Object} data - name, desc, imgを含むバッジデータ
-             * @param {boolean} isIssued - 発行したバッジかどうかのフラグ
+             * バッジをDOMに描画する (変更なし: 重複チェック機能により安全性が向上)
              */
             renderBadge(issuer, id, data, isIssued) {
                 const containerId = isIssued ? DOM_IDS.ISSUED : DOM_IDS.RECEIVED;
                 const container = document.getElementById(containerId);
                 if (!container) return;
 
-                // 重複を防ぐために、既に同じバッジが描画されていないかチェック (簡易的なもの)
+                // 既に描画されているかチェック
                 const existingBadge = container.querySelector(`[data-badge-key="${issuer}:${id}"]`);
                 if (existingBadge) return;
 
                 const div = document.createElement("div");
                 div.className = "badge";
-                div.setAttribute("data-badge-key", `${issuer}:${id}`); // 重複チェック用
+                div.setAttribute("data-badge-key", `${issuer}:${id}`); 
                 div.setAttribute("data-name", data.name);
                 div.setAttribute("data-desc", data.desc);
                 div.setAttribute("data-img", data.img);
@@ -351,7 +359,7 @@
                         mini.src = data.img || 'https://via.placeholder.com/32';
                         mini.title = data.name;
                         mini.onclick = (e) => {
-                            e.stopPropagation(); // 親要素のクリックイベントを停止
+                            e.stopPropagation(); 
                             this.openModal(data.img, data.name, data.desc);
                         };
                         profileBadgesDiv.appendChild(mini);
@@ -359,11 +367,8 @@
                 }
             },
             
-            // --- モーダル関数 ---
+            // --- モーダル関数 (変更なし) ---
 
-            /**
-             * モーダルを開く
-             */
             openModal(img, name, desc) {
                 document.getElementById(DOM_IDS.MODAL_IMG).src = img || 'https://via.placeholder.com/200';
                 document.getElementById(DOM_IDS.MODAL_NAME).textContent = name;
@@ -371,9 +376,6 @@
                 document.getElementById(DOM_IDS.MODAL).style.display = "flex";
             },
 
-            /**
-             * モーダルを閉じる
-             */
             closeModal() {
                 document.getElementById(DOM_IDS.MODAL).style.display = "none";
             },
@@ -384,24 +386,14 @@
             init() {
                 this.connectRelays();
                 
-                // イベントリスナーの設定
                 document.getElementById("loadButton").addEventListener("click", () => this.loadFromNpub());
                 document.getElementById("nostrLoginButton").addEventListener("click", () => this.loginWithNostr());
                 document.getElementById(DOM_IDS.INPUT).addEventListener("keypress", (e) => {
                     if (e.key === 'Enter') this.loadFromNpub();
                 });
-
-                // URLパラメータからnpubを読み込む機能を追加することも可能
-                // const params = new URLSearchParams(window.location.search);
-                // const initialNpub = params.get('npub');
-                // if (initialNpub) {
-                //     document.getElementById(DOM_IDS.INPUT).value = initialNpub;
-                //     this.loadFromNpub();
-                // }
             }
         };
 
-        // アプリケーションを起動
         NostrApp.init();
     </script>
 </body>
