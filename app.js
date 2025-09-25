@@ -33,6 +33,17 @@ const state = {
   profileRendered: false
 };
 
+const badgeData = {
+  name: event.tags.find(t => t[0] === "name")?.[1] || "Unnamed Badge",
+  desc: event.tags.find(t => t[0] === "description")?.[1] || "",
+  img: event.tags.find(t => t[0] === "image")?.[1] 
+       || event.tags.find(t => t[0] === "thumb")?.[1]
+       || event.tags.find(t => t[0] === "icon")?.[1]
+       || "",
+  issuer: event.pubkey
+};
+
+
 const Utils = {
   subId(prefix) {
     return `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
