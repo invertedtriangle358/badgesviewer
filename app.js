@@ -81,13 +81,14 @@ const Relay = {
   },
 
   send(filter) {
-    const subId = Utils.subId(filter.kinds.join("-"));
-    const req = ["REQ", subId, filter];
-    state.activeSubs.add(subId);
-    state.sockets.forEach(s => {
-      if (s.readyState === WebSocket.OPEN) s.send(JSON.stringify(req));
-    });
-  },
+  const subId = Utils.subId(filter.kinds.join('-'));
+  const req = ["REQ", subId, filter];
+  console.log("Send REQ:", JSON.stringify(req)); // ★確認ログ
+  state.activeSubs.add(subId);
+  state.sockets.forEach(s => {
+    if (s.readyState === WebSocket.OPEN) s.send(JSON.stringify(req));
+  });
+},
 
   unsubscribeAll() {
     if (state.activeSubs.size === 0) return;
