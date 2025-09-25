@@ -39,7 +39,10 @@ const RELAY_URLS = [
   "wss://relay.snort.social",
   "wss://yabu.me",
   "wss://r.kojira.io",
-  "wss://relay-jp.nostr.wirednet.jp"
+  "wss://relay-jp.nostr.wirednet.jp",
+  "wss://nostr-pub.wellorder.net",
+  "wss://relay.primal.net",
+  "wss://nostr.wine" 
 ];
 
 // アプリケーションの状態管理
