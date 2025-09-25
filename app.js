@@ -179,20 +179,21 @@ const Handlers = {
 };
 
 const UI = {
+
   renderProfile(ev) {
-    const profile = JSON.parse(ev.content || "{}");
-    DOM.profile.innerHTML = `
-      <div class="profile-header">
-        <img src="${profile.picture || 'https://via.placeholder.com/100'}" width="100">
-        <div>
-          <h2>${profile.display_name || profile.name || ev.pubkey.slice(0, 8)}</h2>
-          <p><strong>npub:</strong> ${Utils.npub(ev.pubkey)}</p>
-          <p>${profile.about || ''}</p>
-        </div>
+  const profile = JSON.parse(ev.content || "{}");
+  DOM.profile.innerHTML = `
+    <div class="profile-header">
+      <img src="${profile.picture || 'https://via.placeholder.com/100'}" width="80" height="80">
+      <div>
+        <h2>${profile.display_name || profile.name || ev.pubkey.slice(0, 8)}</h2>
+        <p><strong>npub:</strong> ${Utils.npub(ev.pubkey)}</p>
       </div>
-      <div class="mini-badges" id="${DOM.profileBadges}"></div>
-    `;
-  },
+    </div>
+    <div class="mini-badges" id="${DOM.profileBadges}"></div>
+  `;
+}
+
 
   renderBadge(key, data, isIssued) {
     const container = isIssued ? DOM.issuedBadges : DOM.receivedBadges;
