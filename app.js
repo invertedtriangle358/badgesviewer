@@ -23,264 +23,199 @@ const RELAY_URLS = [
   "wss://relay-jp.nostr.wirednet.jp",
 ];
 
-const NostrApp = {
+const state = {
   sockets: [],
-  activeSubscriptions: new Set(),
-  currentPubkeyHex: "",
+  activeSubs: new Set(),
+  pubkeyHex: "",
   badgeDefs: {},
-  receivedBadgeKeys: {},
-  profileBadgeKeys: [],
-  hasRenderedProfile: false,
+  received: new Set(),
+  profileBadges: new Set(),
+  profileRendered: false
+};
 
-  init() {
-    DOM.loadButton.addEventListener("click", () => this.loadFromNpub());
-    DOM.loginButton.addEventListener("click", () => this.loginWithNostr());
-    DOM.npubInput.addEventListener("keypress", e => { if (e.key === 'Enter') this.loadFromNpub(); });
-    this.connectRelays();
+const Utils = {
+  subId(prefix) {
+    return `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
   },
+  npub(pubkey) {
+    return NostrTools.nip19.npubEncode(pubkey);
+  }
+};
 
-  connectRelays() {
-    let connectedCount = 0;
+const Relay = {
+  connectAll() {
+    let connected = 0;
     DOM.status.textContent = `接続中... (0/${RELAY_URLS.length})`;
 
     RELAY_URLS.forEach(url => {
       const socket = new WebSocket(url);
-      this.sockets.push(socket);
+      state.sockets.push(socket);
 
       socket.onopen = () => {
-        connectedCount++;
-        DOM.status.textContent = `リレーに接続しました (${connectedCount}/${RELAY_URLS.length})`;
+        connected++;
+        DOM.status.textContent = `接続 (${connected}/${RELAY_URLS.length})`;
         DOM.loadButton.disabled = false;
         DOM.loginButton.disabled = false;
-        console.log("Relay connected:", url);
+        console.log("Connected:", url);
       };
-
-      socket.onclose = () => console.log("Relay disconnected:", url);
-      socket.onerror = e => console.error("Relay error:", url, e);
 
       socket.onmessage = e => {
         try {
-          const [type, subId, event] = JSON.parse(e.data);
-          if (type === "EVENT") this.handleEvent(event);
-        } catch (err) { console.error("Relay message parse error:", err); }
+          const [type, , event] = JSON.parse(e.data);
+          if (type === "EVENT") Events.handle(event);
+        } catch (err) {
+          console.error("Parse error:", err);
+        }
       };
     });
   },
 
-  generateSubId(prefix) {
-    return `${prefix}-${Math.random().toString(36).substring(2, 8)}`;
-  },
-
-  sendRequest(filter) {
-    const subId = this.generateSubId(filter.kinds.join('-'));
+  send(filter) {
+    const subId = Utils.subId(filter.kinds.join('-'));
     const req = ["REQ", subId, filter];
-    this.activeSubscriptions.add(subId);
-    console.log("Sending REQ:", req);
-    this.sockets.forEach(s => {
+    state.activeSubs.add(subId);
+    state.sockets.forEach(s => {
       if (s.readyState === WebSocket.OPEN) s.send(JSON.stringify(req));
     });
   },
 
   unsubscribeAll() {
-    if (this.activeSubscriptions.size === 0) return;
-    console.log("Closing all subscriptions:", this.activeSubscriptions);
-    this.activeSubscriptions.forEach(subId => {
+    if (state.activeSubs.size === 0) return;
+    state.activeSubs.forEach(subId => {
       const closeReq = ["CLOSE", subId];
-      this.sockets.forEach(s => {
+      state.sockets.forEach(s => {
         if (s.readyState === WebSocket.OPEN) s.send(JSON.stringify(closeReq));
       });
     });
-    this.activeSubscriptions.clear();
-  },
+    state.activeSubs.clear();
+  }
+};
 
-  loadAll(pubkeyHex) {
-    this.unsubscribeAll();
-    DOM.profile.innerHTML = "";
-    DOM.receivedBadges.innerHTML = "";
-    DOM.issuedBadges.innerHTML = "";
-    this.badgeDefs = {};
-    this.receivedBadgeKeys = {};
-    this.profileBadgeKeys = [];
-    this.currentPubkeyHex = pubkeyHex;
-    this.hasRenderedProfile = false;
-    
-    DOM.status.textContent = `${NostrTools.nip19.npubEncode(pubkeyHex).slice(0, 16)}... の情報を読み込み中...`;
-
-    this.sendRequest({ kinds: [0], authors: [pubkeyHex], limit: 1 });
-    this.sendRequest({ kinds: [8], "#p": [pubkeyHex] });
-    this.sendRequest({ kinds: [30008], authors: [pubkeyHex] });
-    this.sendRequest({ kinds: [30009], authors: [pubkeyHex], limit: 1 });
-  },
-
-  loginWithNostr() {
-    if (!window.nostr) {
-      alert("Nostr Login対応拡張が見つかりません");
-      return;
+const Events = {
+  handle(ev) {
+    switch (ev.kind) {
+      case 0: Handlers.profile(ev); break;
+      case 8: Handlers.receivedBadge(ev); break;
+      case 30008: Handlers.badgeDef(ev); break;
+      case 30009: Handlers.profileBadges(ev); break;
     }
-    window.nostr.getPublicKey().then(p => {
-      if (p) this.loadAll(p);
-    }).catch(e => {
-      console.error("Login failed", e);
-      alert("Nostr Login失敗");
-    });
+  }
+};
+
+const Handlers = {
+  profile(ev) {
+    if (ev.pubkey !== state.pubkeyHex || state.profileRendered) return;
+    state.profileRendered = true;
+    UI.renderProfile(ev);
   },
 
-  loadFromNpub() {
-    const npub = DOM.npubInput.value.trim();
-    if (!npub) return alert("npubを入力してください");
-    try {
-      const { type, data } = NostrTools.nip19.decode(npub);
-      if (type !== "npub") throw new Error("npub形式ではありません");
-      this.loadAll(data);
-    } catch (e) {
-      console.error("npub decode failed", e);
-      alert("npub decode failed");
-    }
-  },
+  receivedBadge(ev) {
+    const aTag = ev.tags.find(t => t[0] === "a");
+    if (!aTag) return;
+    const parts = aTag[1].split(":");
+    if (parts.length !== 3 || parts[0] !== "30008") return;
 
-  handleEvent(event) {
-    switch(event.kind){
-      case 0:
-        if(event.pubkey === this.currentPubkeyHex && !this.hasRenderedProfile) {
-          this.hasRenderedProfile = true;
-          this.renderProfile(event);
-        }
-        break;
-      case 8:
-        if(event.tags.some(t => t[0] === "p" && t[1] === this.currentPubkeyHex)) this.processReceivedBadge(event);
-        break;
-      case 30008: this.processBadgeDefinition(event); break;
-      case 30009:
-        if(event.pubkey === this.currentPubkeyHex) this.processProfileBadges(event);
-        break;
-    }
-  },
-  
-  renderProfile(event){
-    DOM.status.textContent = "プロフィール情報を表示しました。";
-    const profile = JSON.parse(event.content);
-    DOM.profile.innerHTML=`
-    <div class="profile-header">
-      <img src="${profile.picture || 'https://via.placeholder.com/100'}" width="100" alt="Profile Picture">
-      <div>
-        <h2>${profile.display_name || profile.name || event.pubkey.slice(0, 8)}</h2>
-        <p><strong>npub:</strong> ${NostrTools.nip19.npubEncode(event.pubkey)}</p>
-        <p>${profile.about || '自己紹介はありません。'}</p>
-      </div>
-    </div>
-    <div class="mini-badges" id="${DOM.profileBadges}"></div>`;
+    const [, issuer, identifier] = parts;
+    const badgeKey = `${issuer}:${identifier}`;
+    state.received.add(badgeKey);
 
-    const badgeKeysFromProfile = event.tags
-      .filter(t => t[0] === 'a' && t[1]?.startsWith('30008:'))
-      .map(t => t[1].substring('30008:'.length));
-    
-    if (badgeKeysFromProfile.length > 0) {
-        DOM.status.textContent = "プロフィールバッジを検出。定義を取得中...";
-    }
-    this.updateProfileBadges(badgeKeysFromProfile);
-    this.renderProfileBadges();
-  },
-
-  processReceivedBadge(event){
-    const aTag=event.tags.find(t=>t[0]==="a"); if(!aTag || !aTag[1]) return;
-    const parts=aTag[1].split(":"); if(parts.length!==3||parts[0]!=="30008") return;
-    const [,issuer,identifier]=parts;
-    const badgeKey=`${issuer}:${identifier}`;
-    this.receivedBadgeKeys[badgeKey]=true;
-
-    if(this.badgeDefs[badgeKey]) {
-      this.renderBadge(issuer,identifier,this.badgeDefs[badgeKey],false);
+    if (state.badgeDefs[badgeKey]) {
+      UI.renderBadge(badgeKey, state.badgeDefs[badgeKey], false);
     } else {
-      this.sendRequest({ kinds: [30008], authors: [issuer], "#d": [identifier], limit: 1 });
+      Relay.send({ kinds: [30008], authors: [issuer], "#d": [identifier], limit: 1 });
     }
   },
 
-  processBadgeDefinition(event){
-    const id = event.tags.find(t => t[0] === "d")?.[1]; if (!id) return;
-    const badgeKey = `${event.pubkey}:${id}`;
-    if (this.badgeDefs[badgeKey]) return;
+  badgeDef(ev) {
+    const id = ev.tags.find(t => t[0] === "d")?.[1];
+    if (!id) return;
 
-    const badgeData={
-      name: event.tags.find(t => t[0] === "name")?.[1] || "Unnamed Badge",
-      desc: event.tags.find(t => t[0] === "description")?.[1] || "",
-      img: event.tags.find(t => t[0] === "image")?.[1] || event.tags.find(t => t[0] === "thumb")?.[1] || "",
-      issuer: event.pubkey
+    const key = `${ev.pubkey}:${id}`;
+    if (state.badgeDefs[key]) return;
+
+    state.badgeDefs[key] = {
+      name: ev.tags.find(t => t[0] === "name")?.[1] || "Unnamed",
+      desc: ev.tags.find(t => t[0] === "description")?.[1] || "",
+      img: ev.tags.find(t => t[0] === "image")?.[1] || "",
+      issuer: ev.pubkey
     };
-    this.badgeDefs[badgeKey] = badgeData;
-    
-    DOM.status.textContent = `バッジ定義「${badgeData.name}」を取得しました。`;
 
-    if(event.pubkey === this.currentPubkeyHex) this.renderBadge(event.pubkey, id, badgeData, true);
-    if(this.receivedBadgeKeys[badgeKey]) this.renderBadge(event.pubkey, id, badgeData, false);
-    if(this.profileBadgeKeys.includes(badgeKey)) this.renderProfileBadges();
+    if (ev.pubkey === state.pubkeyHex) UI.renderBadge(key, state.badgeDefs[key], true);
+    if (state.received.has(key)) UI.renderBadge(key, state.badgeDefs[key], false);
+    if (state.profileBadges.has(key)) UI.renderProfileBadges();
   },
-  
-  processProfileBadges(event){
-    const newBadgeKeys = event.tags
-      .filter(t => t[0] === 'a' && t[1]?.startsWith('30008:'))
-      .map(t => t[1].substring('30008:'.length));
-    
-    this.updateProfileBadges(newBadgeKeys);
-    this.renderProfileBadges();
-  },
-  
-  updateProfileBadges(newKeys) {
-    if (!newKeys || newKeys.length === 0) return;
-    const currentKeys = new Set(this.profileBadgeKeys);
-    const addedKeys = [];
+
+  profileBadges(ev) {
+    const newKeys = ev.tags
+      .filter(t => t[0] === "a" && t[1].startsWith("30008:"))
+      .map(t => t[1].slice("30008:".length));
+
     newKeys.forEach(key => {
-        if (!currentKeys.has(key)) {
-            currentKeys.add(key);
-            addedKeys.push(key);
+      if (!state.profileBadges.has(key)) {
+        state.profileBadges.add(key);
+        if (!state.badgeDefs[key]) {
+          const [issuer, identifier] = key.split(":");
+          Relay.send({ kinds: [30008], authors: [issuer], "#d": [identifier], limit: 1 });
         }
+      }
     });
-    this.profileBadgeKeys = Array.from(currentKeys);
-    addedKeys.forEach(key => {
-        if (!this.badgeDefs[key]) {
-            const [issuer, identifier] = key.split(':');
-            if (issuer && identifier) {
-               this.sendRequest({ kinds: [30008], authors: [issuer], "#d": [identifier], limit: 1 });
-            }
-        }
-    });
+
+    UI.renderProfileBadges();
+  }
+};
+
+const UI = {
+  renderProfile(ev) {
+    const profile = JSON.parse(ev.content || "{}");
+    DOM.profile.innerHTML = `
+      <div class="profile-header">
+        <img src="${profile.picture || 'https://via.placeholder.com/100'}" width="100">
+        <div>
+          <h2>${profile.display_name || profile.name || ev.pubkey.slice(0, 8)}</h2>
+          <p><strong>npub:</strong> ${Utils.npub(ev.pubkey)}</p>
+          <p>${profile.about || ''}</p>
+        </div>
+      </div>
+      <div class="mini-badges" id="${DOM.profileBadges}"></div>
+    `;
+  },
+
+  renderBadge(key, data, isIssued) {
+    const container = isIssued ? DOM.issuedBadges : DOM.receivedBadges;
+    if (container.querySelector(`[data-badge="${key}"]`)) return;
+
+    const div = document.createElement("div");
+    div.className = "badge";
+    div.dataset.badge = key;
+    div.innerHTML = `
+      <img src="${data.img || 'https://via.placeholder.com/100'}" class="badge-image">
+      <div><strong>${data.name}</strong></div>
+      <small>${data.desc}</small>
+    `;
+    div.onclick = () => UI.openModal(data);
+    container.appendChild(div);
   },
 
   renderProfileBadges() {
-    const profileDiv = document.getElementById(DOM.profileBadges);
-    if (!profileDiv) return;
-    profileDiv.innerHTML = '';
-    this.profileBadgeKeys.forEach(badgeKey => {
-      const data = this.badgeDefs[badgeKey];
+    const wrap = document.getElementById(DOM.profileBadges);
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    state.profileBadges.forEach(key => {
+      const data = state.badgeDefs[key];
       if (data) {
-        const mini = document.createElement("img");
-        mini.src = data.img || 'https://via.placeholder.com/32';
-        mini.title = `${data.name}\n${data.desc}`;
-        mini.onclick = e => { e.stopPropagation(); this.openModal(data.img, data.name, data.desc); };
-        profileDiv.appendChild(mini);
+        const img = document.createElement("img");
+        img.src = data.img || 'https://via.placeholder.com/32';
+        img.title = `${data.name}\n${data.desc}`;
+        img.onclick = e => { e.stopPropagation(); UI.openModal(data); };
+        wrap.appendChild(img);
       }
     });
   },
 
-  renderBadge(issuer, id, data, isIssued) {
-    const container = isIssued ? DOM.issuedBadges : DOM.receivedBadges;
-    const badgeKey = `${issuer}:${id}`;
-    if (container.querySelector(`[data-badge-key="${badgeKey}"]`)) return;
-    
-    const div = document.createElement("div");
-    div.className = "badge";
-    div.dataset.badgeKey = badgeKey;
-    div.innerHTML = `
-      <img src="${data.img || 'https://via.placeholder.com/100'}" class="badge-image" alt="${data.name}">
-      <div><strong>${data.name}</strong></div>
-      <small>${data.desc.substring(0, 30)}${data.desc.length > 30 ? '...' : ''}</small>`;
-    div.onclick = () => this.openModal(data.img, data.name, data.desc);
-    container.appendChild(div);
-  },
-
-  openModal(img, name, desc) {
-    DOM.modalImg.src = img || 'https://via.placeholder.com/200';
-    DOM.modalName.textContent = name;
-    DOM.modalDesc.textContent = desc;
+  openModal(data) {
+    DOM.modalImg.src = data.img || 'https://via.placeholder.com/200';
+    DOM.modalName.textContent = data.name;
+    DOM.modalDesc.textContent = data.desc;
     DOM.modal.style.display = "flex";
   },
 
@@ -289,4 +224,52 @@ const NostrApp = {
   }
 };
 
-NostrApp.init();
+const App = {
+  init() {
+    DOM.loadButton.onclick = () => this.loadFromInput();
+    DOM.loginButton.onclick = () => this.login();
+    DOM.npubInput.addEventListener("keypress", e => {
+      if (e.key === "Enter") this.loadFromInput();
+    });
+    Relay.connectAll();
+  },
+
+  loadFromInput() {
+    const npub = DOM.npubInput.value.trim();
+    if (!npub) return alert("npubを入力してください");
+    try {
+      const { type, data } = NostrTools.nip19.decode(npub);
+      if (type !== "npub") throw new Error();
+      this.loadAll(data);
+    } catch {
+      alert("npub decode failed");
+    }
+  },
+
+  login() {
+    if (!window.nostr) return alert("Nostr Login未対応");
+    window.nostr.getPublicKey().then(pubkey => this.loadAll(pubkey));
+  },
+
+  loadAll(pubkeyHex) {
+    Relay.unsubscribeAll();
+    state.pubkeyHex = pubkeyHex;
+    state.badgeDefs = {};
+    state.received.clear();
+    state.profileBadges.clear();
+    state.profileRendered = false;
+    DOM.profile.innerHTML = "";
+    DOM.receivedBadges.innerHTML = "";
+    DOM.issuedBadges.innerHTML = "";
+
+    DOM.status.textContent = `${Utils.npub(pubkeyHex).slice(0, 16)}... 読み込み中...`;
+
+    Relay.send({ kinds: [0], authors: [pubkeyHex], limit: 1 });
+    Relay.send({ kinds: [8], "#p": [pubkeyHex] });
+    Relay.send({ kinds: [30008], authors: [pubkeyHex] });
+    Relay.send({ kinds: [30009], authors: [pubkeyHex], limit: 1 });
+  }
+};
+
+NostrApp = { ...App, closeModal: UI.closeModal };
+App.init();
