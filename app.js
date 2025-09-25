@@ -137,24 +137,27 @@ const Handlers = {
     }
   },
 
-  badgeDef(ev) {
-    const id = ev.tags.find(t => t[0] === "d")?.[1];
-    if (!id) return;
+ badgeDef(ev) {
+  const id = ev.tags.find(t => t[0] === "d")?.[1];
+  if (!id) return;
 
-    const key = `${ev.pubkey}:${id}`;
-    if (state.badgeDefs[key]) return;
+  const key = `${ev.pubkey}:${id}`;
+  if (state.badgeDefs[key]) return;
 
-    state.badgeDefs[key] = {
-      name: ev.tags.find(t => t[0] === "name")?.[1] || "Unnamed",
-      desc: ev.tags.find(t => t[0] === "description")?.[1] || "",
-      img: ev.tags.find(t => t[0] === "image")?.[1] || "",
-      issuer: ev.pubkey
-    };
+  const name = ev.tags.find(t => t[0] === "name")?.[1] || "Unnamed";
+  const desc = ev.tags.find(t => t[0] === "description")?.[1] || "";
+  const img =
+    ev.tags.find(t => t[0] === "image")?.[1] ||
+    ev.tags.find(t => t[0] === "thumb")?.[1] ||
+    ev.tags.find(t => t[0] === "icon")?.[1] ||
+    "";
 
-    if (ev.pubkey === state.pubkeyHex) UI.renderBadge(key, state.badgeDefs[key], true);
-    if (state.received.has(key)) UI.renderBadge(key, state.badgeDefs[key], false);
-    if (state.profileBadges.has(key)) UI.renderProfileBadges();
-  },
+  state.badgeDefs[key] = { name, desc, img, issuer: ev.pubkey };
+
+  if (ev.pubkey === state.pubkeyHex) UI.renderBadge(key, state.badgeDefs[key], true);
+  if (state.received.has(key)) UI.renderBadge(key, state.badgeDefs[key], false);
+  if (state.profileBadges.has(key)) UI.renderProfileBadges();
+}
 
   profileBadges(ev) {
     const newKeys = ev.tags
