@@ -20,7 +20,7 @@ const RELAY_URLS = [
   "wss://relay.snort.social",
   "wss://yabu.me",
   "wss://r.kojira.io",
-  "wss://relay-jp.nostr.wirednet.jp",
+  "wss://relay-jp.nostr.wirednet.jp"
 ];
 
 const state = {
@@ -33,23 +33,22 @@ const state = {
   profileRendered: false
 };
 
-const badgeData = {
-  name: event.tags.find(t => t[0] === "name")?.[1] || "Unnamed Badge",
-  desc: event.tags.find(t => t[0] === "description")?.[1] || "",
-  img: event.tags.find(t => t[0] === "image")?.[1] 
-       || event.tags.find(t => t[0] === "thumb")?.[1]
-       || event.tags.find(t => t[0] === "icon")?.[1]
-       || "",
-  issuer: event.pubkey
-};
-
-
 const Utils = {
   subId(prefix) {
     return `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
   },
   npub(pubkey) {
     return NostrTools.nip19.npubEncode(pubkey);
+  },
+  extractBadgeData(ev) {
+    const name = ev.tags.find(t => t[0] === "name")?.[1] || "Unnamed";
+    const desc = ev.tags.find(t => t[0] === "description")?.[1] || "";
+    const img =
+      ev.tags.find(t => t[0] === "image")?.[1] ||
+      ev.tags.find(t => t[0] === "thumb")?.[1] ||
+      ev.tags.find(t => t[0] === "icon")?.[1] ||
+      "";
+    return { name, desc, img, issuer: ev.pubkey };
   }
 };
 
@@ -82,7 +81,7 @@ const Relay = {
   },
 
   send(filter) {
-    const subId = Utils.subId(filter.kinds.join('-'));
+    const subId = Utils.subId(filter.kinds.join("-"));
     const req = ["REQ", subId, filter];
     state.activeSubs.add(subId);
     state.sockets.forEach(s => {
@@ -105,10 +104,18 @@ const Relay = {
 const Events = {
   handle(ev) {
     switch (ev.kind) {
-      case 0: Handlers.profile(ev); break;
-      case 8: Handlers.receivedBadge(ev); break;
-      case 30008: Handlers.badgeDef(ev); break;
-      case 30009: Handlers.profileBadges(ev); break;
+      case 0:
+        Handlers.profile(ev);
+        break;
+      case 8:
+        Handlers.receivedBadge(ev);
+        break;
+      case 30008:
+        Handlers.badgeDef(ev);
+        break;
+      case 30009:
+        Handlers.profileBadges(ev);
+        break;
     }
   }
 };
@@ -137,27 +144,19 @@ const Handlers = {
     }
   },
 
- badgeDef(ev) {
-  const id = ev.tags.find(t => t[0] === "d")?.[1];
-  if (!id) return;
+  badgeDef(ev) {
+    const id = ev.tags.find(t => t[0] === "d")?.[1];
+    if (!id) return;
 
-  const key = `${ev.pubkey}:${id}`;
-  if (state.badgeDefs[key]) return;
+    const key = `${ev.pubkey}:${id}`;
+    if (state.badgeDefs[key]) return;
 
-  const name = ev.tags.find(t => t[0] === "name")?.[1] || "Unnamed";
-  const desc = ev.tags.find(t => t[0] === "description")?.[1] || "";
-  const img =
-    ev.tags.find(t => t[0] === "image")?.[1] ||
-    ev.tags.find(t => t[0] === "thumb")?.[1] ||
-    ev.tags.find(t => t[0] === "icon")?.[1] ||
-    "";
+    state.badgeDefs[key] = Utils.extractBadgeData(ev);
 
-  state.badgeDefs[key] = { name, desc, img, issuer: ev.pubkey };
-
-  if (ev.pubkey === state.pubkeyHex) UI.renderBadge(key, state.badgeDefs[key], true);
-  if (state.received.has(key)) UI.renderBadge(key, state.badgeDefs[key], false);
-  if (state.profileBadges.has(key)) UI.renderProfileBadges();
-}
+    if (ev.pubkey === state.pubkeyHex) UI.renderBadge(key, state.badgeDefs[key], true);
+    if (state.received.has(key)) UI.renderBadge(key, state.badgeDefs[key], false);
+    if (state.profileBadges.has(key)) UI.renderProfileBadges();
+  },
 
   profileBadges(ev) {
     const newKeys = ev.tags
@@ -179,21 +178,19 @@ const Handlers = {
 };
 
 const UI = {
-
   renderProfile(ev) {
-  const profile = JSON.parse(ev.content || "{}");
-  DOM.profile.innerHTML = `
-    <div class="profile-header">
-      <img src="${profile.picture || 'https://via.placeholder.com/100'}" width="80" height="80">
-      <div>
-        <h2>${profile.display_name || profile.name || ev.pubkey.slice(0, 8)}</h2>
-        <p><strong>npub:</strong> ${Utils.npub(ev.pubkey)}</p>
+    const profile = JSON.parse(ev.content || "{}");
+    DOM.profile.innerHTML = `
+      <div class="profile-header">
+        <img src="${profile.picture || "https://via.placeholder.com/100"}" width="80" height="80">
+        <div>
+          <h2>${profile.display_name || profile.name || ev.pubkey.slice(0, 8)}</h2>
+          <p><strong>npub:</strong> ${Utils.npub(ev.pubkey)}</p>
+        </div>
       </div>
-    </div>
-    <div class="mini-badges" id="${DOM.profileBadges}"></div>
-  `;
-}
-
+      <div class="mini-badges" id="${DOM.profileBadges}"></div>
+    `;
+  },
 
   renderBadge(key, data, isIssued) {
     const container = isIssued ? DOM.issuedBadges : DOM.receivedBadges;
@@ -203,7 +200,7 @@ const UI = {
     div.className = "badge";
     div.dataset.badge = key;
     div.innerHTML = `
-      <img src="${data.img || 'https://via.placeholder.com/100'}" class="badge-image">
+      <img src="${data.img || "https://via.placeholder.com/100"}" class="badge-image">
       <div><strong>${data.name}</strong></div>
       <small>${data.desc}</small>
     `;
@@ -214,21 +211,24 @@ const UI = {
   renderProfileBadges() {
     const wrap = document.getElementById(DOM.profileBadges);
     if (!wrap) return;
-    wrap.innerHTML = '';
+    wrap.innerHTML = "";
     state.profileBadges.forEach(key => {
       const data = state.badgeDefs[key];
       if (data) {
         const img = document.createElement("img");
-        img.src = data.img || 'https://via.placeholder.com/32';
+        img.src = data.img || "https://via.placeholder.com/32";
         img.title = `${data.name}\n${data.desc}`;
-        img.onclick = e => { e.stopPropagation(); UI.openModal(data); };
+        img.onclick = e => {
+          e.stopPropagation();
+          UI.openModal(data);
+        };
         wrap.appendChild(img);
       }
     });
   },
 
   openModal(data) {
-    DOM.modalImg.src = data.img || 'https://via.placeholder.com/200';
+    DOM.modalImg.src = data.img || "https://via.placeholder.com/200";
     DOM.modalName.textContent = data.name;
     DOM.modalDesc.textContent = data.desc;
     DOM.modal.style.display = "flex";
