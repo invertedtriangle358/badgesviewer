@@ -1,19 +1,137 @@
-body { font-family: sans-serif; background: #f5f5f5; padding: 20px; }
-h1,h2 { color:#333; margin-top:20px; }
-#npubInput { padding:8px; border:1px solid #ccc; border-radius:4px; width: 400px; }
-button { padding:8px 15px; margin-left:5px; cursor:pointer; background:#007bff; color:white; border:none; border-radius:4px; }
-button:hover { background:#0056b3; }
-button:disabled { background:#ccc; cursor:not-allowed; }
-#status { margin-top: 15px; padding: 10px; background: #e9ecef; border-radius: 4px; color: #495057; }
-.profile { background:white; padding:15px; border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.1); margin-bottom:20px; }
-.profile-header { display:flex; align-items:center; }
-.profile img { border-radius:50%; margin-right:15px; }
-.badges { display:flex; flex-wrap:wrap; gap:15px; min-height: 50px; }
-.badge { background:white; border:1px solid #ddd; padding:15px; border-radius:8px; text-align:center; width:160px; box-shadow:0 1px 3px rgba(0,0,0,0.05); cursor:pointer; transition:transform 0.1s; }
-.badge:hover { transform:translateY(-3px); box-shadow:0 4px 8px rgba(0,0,0,0.1); }
-.badge-image { max-width:100px; max-height:100px; object-fit:contain; display:block; margin:0 auto 10px; }
-.mini-badges { margin-top:10px; }
-.mini-badges img { width:32px; height:32px; margin-right:5px; border-radius:4px; cursor:pointer; }
-.modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); justify-content:center; align-items:center; z-index:1000; }
-.modal-content { background:white; padding:30px; border-radius:10px; max-width:90%; width:400px; text-align:center; box-shadow:0 5px 15px rgba(0,0,0,0.3); }
-.modal-content img { max-width:100%; height:auto; border-radius:6px; margin-bottom:15px; }
+body {
+  font-family: sans-serif;
+  background: #f5f5f5;
+  padding: 20px;
+}
+
+h1,
+h2 {
+  color: #333;
+  margin-top: 20px;
+}
+
+#npubInput {
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  width: 400px;
+}
+
+button {
+  padding: 8px 15px;
+  margin-left: 5px;
+  cursor: pointer;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+}
+
+button:hover {
+  background: #0056b3;
+}
+
+button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+#status {
+  margin-top: 15px;
+  padding: 10px;
+  background: #e9ecef;
+  border-radius: 4px;
+  color: #495057;
+}
+
+.profile {
+  background: white;
+  padding: 15px;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  margin-bottom: 20px;
+}
+
+.profile-header {
+  display: flex;
+  align-items: center;
+}
+
+.profile img {
+  border-radius: 50%;
+  margin-right: 15px;
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  min-height: 50px;
+}
+
+.badge {
+  background: white;
+  border: 1px solid #ddd;
+  padding: 15px;
+  border-radius: 8px;
+  text-align: center;
+  width: 160px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+.badge:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.badge-image {
+  max-width: 100px;
+  max-height: 100px;
+  object-fit: contain;
+  display: block;
+  margin: 0 auto 10px;
+}
+
+.mini-badges {
+  margin-top: 10px;
+}
+
+.mini-badges img {
+  width: 32px;
+  height: 32px;
+  margin-right: 5px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  padding: 30px;
+  border-radius: 10px;
+  max-width: 90%;
+  width: 400px;
+  text-align: center;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+}
+
+.modal-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin-bottom: 15px;
+}
